@@ -1,0 +1,240 @@
+# ============================================
+# PDAM Chatbot AI - Optimized Docker Compose
+# High Performance with GPU + Redis Caching
+# Target: < 10 second response time
+# ============================================
+
+version: '3.8'
+
+services:
+  # ==========================================
+  # Redis - Critical for fast caching
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: pdam-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server 
+      --appendonly yes 
+      --maxmemory 2gb 
+      --maxmemory-policy allkeys-lru
+      --save 60 1000
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pdam-network
+
+  # ==========================================
+  # Ollama - GPU Accelerated LLM
+  # ==========================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: pdam-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ORIGINS=*
+      - OLLAMA_NUM_PARALLEL=4
+      - OLLAMA_MAX_LOADED_MODELS=2
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_KV_CACHE_TYPE=q8_0
+    # GPU Support - NVIDIA
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - pdam-network
+
+  # ==========================================
+  # Model Initializer - Download models
+  # ==========================================
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: pdam-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "🚀 Downloading AI models..."
+        ollama pull llama3.2:3b
+        ollama pull nomic-embed-text
+        echo "✅ Models ready!"
+        # Warmup model
+        echo "🔥 Warming up..."
+        curl -X POST http://ollama:11434/api/generate -d '{"model":"llama3.2:3b","prompt":"Hi","stream":false}'
+        echo "✅ Warmup complete!"
+    networks:
+      - pdam-network
+    restart: "no"
+
+  # ==========================================
+  # Backend - FastAPI Optimized
+  # ==========================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.optimized
+    container_name: pdam-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - backend_documents:/app/documents
+      - backend_vectordb:/app/vectordb
+      - backend_logs:/app/logs
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - WORKERS=8
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3.2:3b
+      - OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+      - OLLAMA_NUM_GPU=99
+      - OLLAMA_NUM_THREAD=16
+      - REDIS_URL=redis://redis:6379/0
+      - CACHE_ENABLED=true
+      - SECRET_KEY=${SECRET_KEY:-pdam-chatbot-secret-2024}
+      - HTTP_POOL_SIZE=100
+      - EMBEDDING_PARALLEL=true
+    depends_on:
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - pdam-network
+    # Optimize container
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  # ==========================================
+  # Frontend - Nuxt.js Optimized
+  # ==========================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pdam-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NUXT_PUBLIC_API_URL=http://localhost:8000  # Tambahkan ini
+      - NODE_ENV=production
+    depends_on:
+      - backend
+    networks:
+      - pdam-network
+
+  # ==========================================
+  # Nginx - Production Reverse Proxy
+  # ==========================================
+  nginx:
+    image: nginx:alpine
+    container_name: pdam-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.optimized.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+      - frontend
+    profiles:
+      - production
+    networks:
+      - pdam-network
+
+  # ==========================================
+  # Prometheus - Metrics (Optional)
+  # ==========================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pdam-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    profiles:
+      - monitoring
+    networks:
+      - pdam-network
+
+  # ==========================================
+  # Grafana - Dashboard (Optional)
+  # ==========================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: pdam-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    profiles:
+      - monitoring
+    networks:
+      - pdam-network
+
+networks:
+  pdam-network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1500
+
+volumes:
+  redis_data:
+    name: pdam-redis-data
+  ollama_data:
+    name: pdam-ollama-data
+  backend_documents:
+    name: pdam-backend-documents
+  backend_vectordb:
+    name: pdam-backend-vectordb
+  backend_logs:
+    name: pdam-backend-logs
+  prometheus_data:
+    name: pdam-prometheus-data
+  grafana_data:
+    name: pdam-grafana-data

@@ -1,0 +1,54 @@
+# ============================================
+# PDAM Chatbot AI - Fixed Dependencies
+# All modules included
+# ============================================
+
+# === Web Framework ===
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+gunicorn==21.2.0
+python-multipart==0.0.9
+
+# === Async HTTP ===
+httpx[http2]==0.27.0
+aiohttp==3.9.3
+aiofiles==23.2.1
+
+# === Settings & Validation ===
+pydantic==2.6.1
+pydantic-settings==2.2.1
+python-dotenv==1.0.1
+
+# === Authentication ===
+PyJWT==2.8.0
+passlib[bcrypt]==1.7.4
+
+# === Redis Caching ===
+redis==5.0.1
+
+# === CRITICAL: Pin NumPy < 2.0 ===
+numpy<2.0.0
+
+# === Vector Database ===
+chromadb==0.4.22
+
+# === LangChain (FIXED - full package) ===
+langchain==0.1.9
+langchain-community==0.0.24
+langchain-text-splitters==0.0.1
+
+# === Document Processing ===
+PyMuPDF==1.23.26
+python-docx==1.1.0
+openpyxl==3.1.2
+Pillow==10.2.0
+pytesseract==0.3.10
+
+# === Performance Monitoring ===
+psutil==5.9.8
+
+# === JSON Performance ===
+orjson==3.9.14
+
+# === Async Utilities ===
+anyio==4.3.0
