@@ -25,5 +25,32 @@
     "is_active": true,
     "created_at": "2026-03-11T02:18:10.190600",
     "updated_at": "2026-03-11T03:10:29.049419"
+  },
+  {
+    "id": "efa94011-4548-4aea-a3a7-15ada09138c8",
+    "name": "Cek Sambung Baru",
+    "method": "GET",
+    "url": "https://gateway.pdamkotasmg.co.id/api-gw/sbonline-prod/api/sambung-baru-online/tracking-ext/{trx}",
+    "category": "general",
+    "trigger_keywords": [
+      "track",
+      "sambung baru",
+      "lacak",
+      "cek sambung baru",
+      "no pendaftaran sambung baru"
+    ],
+    "params": [
+      {
+        "name": "trx",
+        "type": "query",
+        "pattern": "[A-Za-z0-9]{6,30}"
+      }
+    ],
+    "headers": {},
+    "body_template": "",
+    "response_template": "",
+    "is_active": true,
+    "created_at": "2026-03-11T05:52:16.486042",
+    "updated_at": "2026-03-11T06:08:07.939661"
   }
 ]

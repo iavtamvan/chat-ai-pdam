@@ -52,13 +52,13 @@
     "temperature": 0.7,
     "max_tokens": 2048,
     "top_p": 0.9,
-    "is_active": true,
-    "is_default": false,
+    "is_active": false,
+    "is_default": true,
     "priority": 0,
     "created_at": "2026-03-05 04:47:50.890841",
-    "updated_at": "2026-03-09 03:47:37.121401",
-    "last_used_at": "2026-03-11 03:22:40.841751",
-    "total_requests": 25,
+    "updated_at": "2026-03-11 08:24:27.333788",
+    "last_used_at": "2026-03-11 08:04:38.176710",
+    "total_requests": 68,
     "total_tokens": 0
   },
   {
@@ -114,20 +114,82 @@
     "temperature": 0.7,
     "max_tokens": 2048,
     "top_p": 0.9,
-    "is_active": true,
-    "is_default": true,
+    "is_active": false,
+    "is_default": false,
     "priority": 0,
     "created_at": "2026-03-05 04:52:11.024886",
-    "updated_at": "2026-03-09 07:27:55.282886",
-    "last_used_at": null,
-    "total_requests": 0,
+    "updated_at": "2026-03-11 07:24:19.938985",
+    "last_used_at": "2026-03-11 07:23:26.290702",
+    "total_requests": 12,
     "total_tokens": 0
   },
   {
-    "id": "32bca48c-96ac-4b70-993f-052de23b2dd1",
+    "id": "5811a52d-b71d-4bcd-8f83-79e9ceb8c2a6",
+    "name": "ollama-prodv2",
+    "provider_type": "ollama",
+    "api_key": "",
+    "api_base_url": null,
+    "organization_id": null,
+    "models": [
+      {
+        "id": "llama3.2:3b",
+        "name": "llama3.2:3b",
+        "display_name": "Llama 3.2 3B",
+        "max_tokens": 4096,
+        "supports_streaming": true,
+        "supports_vision": false,
+        "cost_per_1k_input": 0.0,
+        "cost_per_1k_output": 0.0
+      },
+      {
+        "id": "llama3.2:1b",
+        "name": "llama3.2:1b",
+        "display_name": "Llama 3.2 1B",
+        "max_tokens": 4096,
+        "supports_streaming": true,
+        "supports_vision": false,
+        "cost_per_1k_input": 0.0,
+        "cost_per_1k_output": 0.0
+      },
+      {
+        "id": "mistral:7b",
+        "name": "mistral:7b",
+        "display_name": "Mistral 7B",
+        "max_tokens": 8192,
+        "supports_streaming": true,
+        "supports_vision": false,
+        "cost_per_1k_input": 0.0,
+        "cost_per_1k_output": 0.0
+      },
+      {
+        "id": "qwen2.5:3b",
+        "name": "qwen2.5:3b",
+        "display_name": "Qwen 2.5 3B",
+        "max_tokens": 8192,
+        "supports_streaming": true,
+        "supports_vision": false,
+        "cost_per_1k_input": 0.0,
+        "cost_per_1k_output": 0.0
+      }
+    ],
+    "default_model": "mistral:7b",
+    "temperature": 0.7,
+    "max_tokens": 2048,
+    "top_p": 0.9,
+    "is_active": false,
+    "is_default": false,
+    "priority": 0,
+    "created_at": "2026-03-11 07:13:47.012604",
+    "updated_at": "2026-03-11 07:24:21.305460",
+    "last_used_at": "2026-03-11 07:14:59.111878",
+    "total_requests": 2,
+    "total_tokens": 0
+  },
+  {
+    "id": "e79cde4c-5b91-46a7-86dd-9e65fb48f8d6",
     "name": "gemini-dev",
     "provider_type": "gemini",
-    "api_key": "AIzaSyClfRuSG2MY8wEcoOFKRE5rcaKNGURji9I",
+    "api_key": "AIzaSyAcjR_UdbNgmLSjR-YsHxwR649zphkg2eg",
     "api_base_url": null,
     "organization_id": null,
     "models": [
@@ -142,8 +204,8 @@
         "cost_per_1k_output": 0.0
       },
       {
-        "id": "gemini-1.5-flash-latest",
-        "name": "gemini-1.5-flash-latest",
+        "id": "gemini-1.5-flash",
+        "name": "gemini-1.5-flash",
         "display_name": "Gemini 1.5 Flash",
         "max_tokens": 1000000,
         "supports_streaming": true,
@@ -162,17 +224,17 @@
         "cost_per_1k_output": 0.0
       }
     ],
-    "default_model": "gemini-1.5-flash-latest",
+    "default_model": "gemini-2.5-flash",
     "temperature": 0.7,
     "max_tokens": 2048,
     "top_p": 0.9,
     "is_active": true,
     "is_default": false,
     "priority": 0,
-    "created_at": "2026-03-09 03:45:42.301694",
-    "updated_at": "2026-03-09 03:45:42.301694",
-    "last_used_at": null,
-    "total_requests": 0,
+    "created_at": "2026-03-11 08:16:34.300919",
+    "updated_at": "2026-03-11 08:24:22.267334",
+    "last_used_at": "2026-03-11 08:28:00.056694",
+    "total_requests": 5,
     "total_tokens": 0
   }
 ]

@@ -52,3 +52,6 @@ orjson==3.9.14
 
 # === Async Utilities ===
 anyio==4.3.0
+
+PyPDF2
+pdfplumber

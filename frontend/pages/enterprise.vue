@@ -185,8 +185,8 @@
           >
             <div class="flex justify-between items-start">
               <div class="flex-1">
-                <div class="flex items-center space-x-2">
-                  <span :class="['px-2 py-0.5 rounded text-xs font-medium', getMethodColor(endpoint.method)]">
+                <div class="flex items-center space-x-2 mb-1">
+                  <span :class="[getMethodColor(endpoint.method), 'text-xs px-2 py-0.5 rounded font-medium']">
                     {{ endpoint.method }}
                   </span>
                   <h3 class="font-medium">{{ endpoint.name }}</h3>
@@ -194,17 +194,16 @@
                     {{ endpoint.is_active ? 'Active' : 'Inactive' }}
                   </span>
                 </div>
-                <p class="text-sm text-gray-500 mt-1 font-mono truncate">{{ endpoint.url }}</p>
-                <div class="flex items-center gap-2 mt-2">
-                  <span class="text-xs text-gray-500">Keywords:</span>
-                  <span v-for="kw in (endpoint.trigger_keywords || [])" :key="kw" class="text-xs bg-gray-100 px-2 py-0.5 rounded">
+                <p class="text-sm text-gray-500 font-mono truncate">{{ endpoint.url }}</p>
+                <div class="flex flex-wrap gap-1 mt-2">
+                  <span v-for="kw in (endpoint.trigger_keywords || [])" :key="kw" class="bg-blue-50 text-blue-600 text-xs px-2 py-0.5 rounded">
                     {{ kw }}
                   </span>
                 </div>
               </div>
               <div class="flex items-center space-x-1">
-                <button @click="editApiEndpoint(endpoint)" class="text-gray-600 hover:bg-gray-50 p-2 rounded" title="Edit">✏️</button>
-                <button @click="testApiEndpoint(endpoint.id)" class="text-blue-600 hover:bg-blue-50 p-2 rounded" title="Test">▶️</button>
+                <button @click="editApiEndpoint(endpoint)" class="text-blue-600 hover:bg-blue-50 p-2 rounded" title="Edit">✏️</button>
+                <button @click="testApiEndpoint(endpoint.id)" class="text-green-600 hover:bg-green-50 p-2 rounded" title="Test">▶️</button>
                 <button @click="toggleApiEndpoint(endpoint.id)" class="text-yellow-600 hover:bg-yellow-50 p-2 rounded" title="Toggle">⚡</button>
                 <button @click="deleteApiEndpoint(endpoint.id)" class="text-red-600 hover:bg-red-50 p-2 rounded" title="Delete">🗑️</button>
               </div>
@@ -214,9 +213,6 @@
           <div v-if="apiEndpoints.length === 0" class="text-center py-12 bg-white rounded-lg border">
             <div class="text-4xl mb-2">🔗</div>
             <p class="text-gray-500">Belum ada API endpoint</p>
-            <button @click="openAddApiModal" class="mt-4 text-blue-600 hover:underline cursor-pointer">
-              + Tambah API endpoint pertama
-            </button>
           </div>
         </div>
       </div>
@@ -226,35 +222,15 @@
         <div class="flex justify-between items-center">
           <div>
             <h2 class="text-lg font-semibold">Embed Tokens</h2>
-            <p class="text-sm text-gray-500">Kelola token untuk widget dan WhatsApp</p>
+            <p class="text-sm text-gray-500">Token untuk widget dan integrasi WhatsApp</p>
           </div>
           <div class="flex space-x-2">
-            <button @click="openWidgetTokenModal" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 cursor-pointer">
-              &lt;/&gt; Widget Token
+            <button @click="showWidgetModal = true" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 cursor-pointer">
+              🌐 Widget Token
             </button>
-            <button @click="openWhatsAppTokenModal" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 cursor-pointer">
+            <button @click="showWhatsAppModal = true" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 cursor-pointer">
               📱 WhatsApp Token
             </button>
-          </div>
-        </div>
-
-        <!-- Token Stats -->
-        <div class="grid grid-cols-4 gap-4">
-          <div class="bg-white rounded-lg border p-4">
-            <p class="text-sm text-gray-500">Total Tokens</p>
-            <p class="text-2xl font-bold">{{ tokenStats.total || 0 }}</p>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <p class="text-sm text-gray-500">Active</p>
-            <p class="text-2xl font-bold text-green-600">{{ tokenStats.active || 0 }}</p>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <p class="text-sm text-gray-500">Total Requests</p>
-            <p class="text-2xl font-bold text-blue-600">{{ tokenStats.total_requests || 0 }}</p>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <p class="text-sm text-gray-500">Expired</p>
-            <p class="text-2xl font-bold text-red-600">{{ tokenStats.expired || 0 }}</p>
           </div>
         </div>
 
@@ -294,7 +270,7 @@
         <div class="space-y-4">
           <div>
             <label class="block text-sm font-medium mb-1">Provider Type</label>
-            <select v-model="newProvider.provider_type" class="w-full border rounded-lg px-3 py-2">
+            <select v-model="newProvider.provider_type" @change="onProviderTypeChange" class="w-full border rounded-lg px-3 py-2">
               <option value="groq">Groq (Free, Fast) ⭐</option>
               <option value="gemini">Google Gemini (Free tier)</option>
               <option value="openrouter">OpenRouter</option>
@@ -315,10 +291,13 @@
           <div>
             <label class="block text-sm font-medium mb-1">Default Model</label>
             <select v-model="newProvider.default_model" class="w-full border rounded-lg px-3 py-2">
-              <option v-for="model in getModelsForProvider(newProvider.provider_type)" :key="model.id" :value="model.id">
+              <option v-for="model in currentProviderModels" :key="model.id" :value="model.id">
                 {{ model.display_name }}
               </option>
             </select>
+            <p v-if="newProvider.provider_type === 'ollama' && ollamaModelsLoading" class="text-xs text-gray-500 mt-1">
+              Loading installed models...
+            </p>
           </div>
           <div class="flex items-center space-x-4">
             <label class="flex items-center cursor-pointer">
@@ -336,7 +315,7 @@
       </div>
     </div>
 
-    <!-- ==================== MODAL: ADD/EDIT API ENDPOINT (ENHANCED) ==================== -->
+    <!-- ==================== MODAL: ADD/EDIT API ENDPOINT ==================== -->
     <div v-if="showAddApiModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div class="bg-white rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto m-4">
         <div class="p-6 border-b sticky top-0 bg-white">
@@ -360,9 +339,9 @@
           </div>
 
           <!-- Row 2: Method & URL -->
-          <div class="grid grid-cols-5 gap-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Method</label>
+          <div class="flex gap-4">
+            <div class="w-32">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Method *</label>
               <select v-model="newEndpoint.method" class="w-full px-3 py-2 border rounded-lg">
                 <option>GET</option>
                 <option>POST</option>
@@ -370,20 +349,20 @@
                 <option>DELETE</option>
               </select>
             </div>
-            <div class="col-span-4">
+            <div class="flex-1">
               <label class="block text-sm font-medium text-gray-700 mb-1">URL *</label>
               <input v-model="newEndpoint.url" type="text"
-                     placeholder="https://gateway.pdamkotasmg.co.id/api/billing/{no_pel}"
+                     placeholder="https://gateway.pdamkotasmg.co.id/api-gw/pengaduan/api/billing/tagihan/air/{no_pel}"
                      class="w-full px-3 py-2 border rounded-lg font-mono text-sm"/>
               <p class="text-xs text-gray-500 mt-1">Gunakan {param} untuk path parameter dinamis</p>
             </div>
           </div>
 
-          <!-- Trigger Keywords -->
+          <!-- Keywords -->
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Trigger Keywords *</label>
             <input v-model="newEndpoint.keywords" type="text"
-                   placeholder="tagihan, cek tagihan, bayar, billing, tunggakan"
+                   placeholder="tagihan, cek tagihan, bayar, billing"
                    class="w-full px-3 py-2 border rounded-lg"/>
             <p class="text-xs text-gray-500 mt-1">Pisahkan dengan koma. AI akan panggil API ini jika keyword ditemukan di pesan user.</p>
           </div>
@@ -558,6 +537,13 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 
+// =============================================
+// FIX: Disable default layout (no double header)
+// =============================================
+definePageMeta({
+  layout: false
+})
+
 // ============ STATE ============
 const activeTab = ref('ai-providers')
 const alertMessage = ref('')
@@ -574,6 +560,10 @@ const aiProviders = ref([])
 const apiEndpoints = ref([])
 const embedTokens = ref([])
 const tokenStats = ref({})
+
+// Ollama models from installed
+const ollamaInstalledModels = ref([])
+const ollamaModelsLoading = ref(false)
 
 // Edit state
 const editingEndpoint = ref(null)
@@ -633,15 +623,31 @@ const freeOptions = ref([
   { name: 'Ollama', url: '#', description: 'Local, unlimited', free_tier: 'Unlimited', recommended: true },
 ])
 
-const modelsByProvider = {
+// Static models for non-Ollama providers
+const staticModelsByProvider = {
   groq: [{ id: 'llama-3.3-70b-versatile', display_name: 'Llama 3.3 70B' }, { id: 'mixtral-8x7b-32768', display_name: 'Mixtral 8x7B' }],
   gemini: [{ id: 'gemini-1.5-flash', display_name: 'Gemini 1.5 Flash' }, { id: 'gemini-1.5-pro', display_name: 'Gemini 1.5 Pro' }],
   openai: [{ id: 'gpt-4o-mini', display_name: 'GPT-4o Mini' }],
   deepseek: [{ id: 'deepseek-chat', display_name: 'DeepSeek Chat' }],
   claude: [{ id: 'claude-3-haiku-20240307', display_name: 'Claude 3 Haiku' }],
-  ollama: [{ id: 'llama3.2:3b', display_name: 'Llama 3.2 3B' }],
   openrouter: [{ id: 'google/gemini-flash-1.5', display_name: 'Gemini Flash' }]
 }
+
+// ============ COMPUTED: Models for current provider ============
+const currentProviderModels = computed(() => {
+  if (newProvider.value.provider_type === 'ollama') {
+    // Use installed Ollama models
+    if (ollamaInstalledModels.value.length > 0) {
+      return ollamaInstalledModels.value.map(m => ({
+        id: m.name,
+        display_name: m.name
+      }))
+    }
+    // Fallback
+    return [{ id: 'llama3.2:3b', display_name: 'Llama 3.2 3B (default)' }]
+  }
+  return staticModelsByProvider[newProvider.value.provider_type] || []
+})
 
 // ============ CONFIG ============
 const config = useRuntimeConfig()
@@ -650,7 +656,6 @@ const apiUrl = config.public?.apiUrl || 'http://localhost:8000'
 // ============ HELPERS ============
 const showAlert = (msg) => { alertMessage.value = msg; setTimeout(() => alertMessage.value = '', 3000) }
 const getMethodColor = (m) => ({ GET: 'bg-green-100 text-green-700', POST: 'bg-blue-100 text-blue-700', PUT: 'bg-yellow-100 text-yellow-700', DELETE: 'bg-red-100 text-red-700' }[m] || 'bg-gray-100')
-const getModelsForProvider = (type) => modelsByProvider[type] || []
 
 // ============ AUTH ============
 const getAuthHeaders = () => {
@@ -661,10 +666,44 @@ const getAuthHeaders = () => {
   }
 }
 
+// ============ FETCH OLLAMA MODELS ============
+const fetchOllamaModels = async () => {
+  ollamaModelsLoading.value = true
+  try {
+    const res = await fetch(`${apiUrl}/api/training/models`)
+    if (res.ok) {
+      const data = await res.json()
+      ollamaInstalledModels.value = data.models || []
+      console.log('Ollama models loaded:', ollamaInstalledModels.value.length)
+    }
+  } catch (e) {
+    console.error('Failed to fetch Ollama models:', e)
+  } finally {
+    ollamaModelsLoading.value = false
+  }
+}
+
 // ============ MODAL OPENERS ============
-const openAddProviderModal = () => {
+const openAddProviderModal = async () => {
   newProvider.value = { name: '', provider_type: 'groq', api_key: '', default_model: 'llama-3.3-70b-versatile', is_active: true, is_default: false }
   showAddProviderModal.value = true
+}
+
+const onProviderTypeChange = async () => {
+  // When user selects Ollama, fetch installed models
+  if (newProvider.value.provider_type === 'ollama') {
+    await fetchOllamaModels()
+    // Set default to first installed model
+    if (ollamaInstalledModels.value.length > 0) {
+      newProvider.value.default_model = ollamaInstalledModels.value[0].name
+    }
+  } else {
+    // Set default model for other providers
+    const models = staticModelsByProvider[newProvider.value.provider_type] || []
+    if (models.length > 0) {
+      newProvider.value.default_model = models[0].id
+    }
+  }
 }
 
 const openAddApiModal = () => {
@@ -689,27 +728,14 @@ const closeApiModal = () => {
   editingEndpoint.value = null
 }
 
-const openWidgetTokenModal = () => { newWidgetToken.value = { name: '', domains: '*', scope: 'external' }; showWidgetModal.value = true }
-const openWhatsAppTokenModal = () => { newWhatsAppToken.value = { name: '', webhook_url: '' }; showWhatsAppModal.value = true }
-
-// Watch provider type
-watch(() => newProvider.value.provider_type, (t) => { const m = getModelsForProvider(t); if (m.length) newProvider.value.default_model = m[0].id })
-
-// ============ PARAM/HEADER HELPERS ============
-const addParam = () => {
-  newEndpoint.value.params.push({ name: '', type: 'path', pattern: '' })
-}
-
-const addHeader = () => {
-  newEndpoint.value.headers.push({ key: '', value: '' })
-}
+const addParam = () => { newEndpoint.value.params.push({ name: '', type: 'path', pattern: '' }) }
+const addHeader = () => { newEndpoint.value.headers.push({ key: '', value: '' }) }
 
 // ============ FETCH DATA ============
 const fetchProviders = async () => {
   try {
     const res = await fetch(`${apiUrl}/api/ai-providers/`, { headers: getAuthHeaders() })
     if (res.ok) aiProviders.value = await res.json()
-    else if (res.status === 401) showAlert('❌ Unauthorized - silakan login ulang')
   } catch (e) { console.error(e) }
 }
 

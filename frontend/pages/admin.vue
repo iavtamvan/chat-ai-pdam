@@ -174,7 +174,7 @@
                   </div>
                   <div>
                     <p class="font-medium text-gray-800">{{ doc.title || doc.filename }}</p>
-                    <p class="text-sm text-gray-500">{{ doc.chunks || 0 }} chunks • {{ formatDate(doc.created_at) }}</p>
+                    <p class="text-sm text-gray-500">{{ doc.chunks || 0 }} chunks • {{ formatDate(doc.created_at || doc.uploaded_at) }}</p>
                   </div>
                 </div>
                 <button
@@ -268,7 +268,7 @@
                         v-if="model.installed"
                         class="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full"
                     >
-                      Active
+                      Installed
                     </span>
                   </div>
                   <p class="text-sm text-gray-500">{{ model.description }}</p>
@@ -361,6 +361,13 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '~/composables/useAuth'
+
+// =============================================
+// FIX: Disable default layout (no double header)
+// =============================================
+definePageMeta({
+  layout: false
+})
 
 const router = useRouter()
 const auth = useAuth()
@@ -464,9 +471,12 @@ async function loadDashboardData() {
   ])
 }
 
+// =============================================
+// FIX: Changed endpoint from /api/documents/ to /api/training/documents
+// =============================================
 async function refreshDocuments() {
   try {
-    const response = await fetch(`${API_URL}/documents/`, {
+    const response = await fetch(`${API_URL}/training/documents`, {
       headers: getAuthHeaders()
     })
     if (response.ok) {
@@ -482,14 +492,16 @@ async function refreshDocuments() {
 
 async function checkOllamaModels() {
   try {
-    const response = await fetch(`${API_URL}/health/ollama`)
+    const response = await fetch(`${API_URL}/training/models`)
     if (response.ok) {
       const data = await response.json()
       const installedModels = data.models || []
 
       availableModels.value.forEach(model => {
         model.installed = installedModels.some(m =>
-            m.name === model.name || (m.name && m.name.startsWith(model.name.split(':')[0]))
+            m.name === model.name ||
+            m.name === `${model.name}:latest` ||
+            (m.name && m.name.startsWith(model.name.split(':')[0]))
         )
       })
 
@@ -508,9 +520,9 @@ async function loadTrainingStatus() {
     if (response.ok) {
       const data = await response.json()
       trainingStatus.value = {
-        ready: data.ready || data.status === 'ready',
-        documents: data.documents || stats.value.documents,
-        chunks: data.chunks || stats.value.chunks,
+        ready: data.status === 'completed' || data.status === 'idle',
+        documents: data.total_documents || stats.value.documents,
+        chunks: data.total_chunks || stats.value.chunks,
         lastUpdated: data.last_updated || data.lastUpdated
       }
     }
@@ -519,7 +531,9 @@ async function loadTrainingStatus() {
   }
 }
 
-// Download model with proper error handling
+// =============================================
+// FIX: Changed to send JSON body properly
+// =============================================
 async function downloadModel(modelName) {
   downloadingModel.value = modelName
   showToast(`Downloading ${modelName}... This may take a few minutes.`, 'info')
@@ -528,7 +542,7 @@ async function downloadModel(modelName) {
     const response = await fetch(`${API_URL}/training/pull-model`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ model: modelName })
+      body: JSON.stringify({ model_name: modelName })
     })
 
     if (!response.ok) {
@@ -536,21 +550,11 @@ async function downloadModel(modelName) {
       try {
         const errorData = await response.json()
         errorMessage = errorData?.detail || errorData?.message || errorData?.error || errorMessage
-      } catch (e) {
-        // ignore parse error
-      }
+      } catch (e) {}
       throw new Error(errorMessage)
     }
 
-    let data = { success: true }
-    try {
-      const text = await response.text()
-      if (text) {
-        data = JSON.parse(text)
-      }
-    } catch (e) {
-      // Response might be empty for success
-    }
+    const data = await response.json()
 
     if (data?.error) {
       throw new Error(data.error)
@@ -598,6 +602,9 @@ async function uploadFiles(files) {
   await refreshDocuments()
 }
 
+// =============================================
+// FIX: Changed endpoint from /api/documents/upload to /api/training/documents/upload
+// =============================================
 async function uploadSingleFile(file) {
   const formData = new FormData()
   formData.append('file', file)
@@ -605,7 +612,7 @@ async function uploadSingleFile(file) {
   uploadProgress.value = 10
 
   try {
-    const response = await fetch(`${API_URL}/documents/upload`, {
+    const response = await fetch(`${API_URL}/training/documents/upload`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${auth.accessToken}`
@@ -632,11 +639,14 @@ async function uploadSingleFile(file) {
   }
 }
 
+// =============================================
+// FIX: Changed endpoint from /api/documents/{id} to /api/training/documents/{id}
+// =============================================
 async function deleteDocument(docId) {
   if (!confirm('Hapus dokumen ini?')) return
 
   try {
-    const response = await fetch(`${API_URL}/documents/${docId}`, {
+    const response = await fetch(`${API_URL}/training/documents/${docId}`, {
       method: 'DELETE',
       headers: getAuthHeaders()
     })

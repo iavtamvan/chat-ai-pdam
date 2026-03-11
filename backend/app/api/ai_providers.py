@@ -309,7 +309,7 @@ async def get_free_api_options():
                 "url": "https://aistudio.google.com/app/apikey",
                 "description": "15 RPM gratis untuk Gemini Pro",
                 "free_tier": "15 requests/minute",
-                "models": ["gemini-1.5-flash", "gemini-1.5-pro"],
+                "models": ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"],
                 "recommended": True
             },
             {
