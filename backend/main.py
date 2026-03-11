@@ -1,11 +1,10 @@
 """
-PDAM Chatbot AI - Optimized Main Application
-High Performance FastAPI with Redis Caching and GPU Support
+PDAM Chatbot AI - Enterprise Edition
+Full-featured with Multi-Provider AI, API Integration, and Embed Management
 """
 
 import os
 import asyncio
-import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -18,20 +17,29 @@ from app.core.config import settings
 from app.core.database import init_vector_db
 from app.services.cache_service import get_cache
 from app.services.llm_service import get_llm_service
+
+# API Routers
 from app.api import chat, documents, auth, health, training, monitoring
+
+# Enterprise Routers
+from app.api import api_integrations, ai_providers, embed_tokens
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifecycle with optimized startup"""
+    """Application lifecycle"""
     print("=" * 60)
-    print("🚀 PDAM Chatbot AI - Starting...")
+    print("🚀 PDAM Chatbot AI Enterprise - Starting...")
     print("=" * 60)
     
     start_time = datetime.now()
     
-    # Initialize components in parallel
+    # Initialize components
     print("📦 Initializing components...")
+    
+    # Create data directory
+    os.makedirs("./data", exist_ok=True)
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     
     # 1. Initialize Redis cache
     try:
@@ -40,7 +48,6 @@ async def lifespan(app: FastAPI):
         print(f"✅ Redis connected (Keys: {stats.get('total_keys', 0)})")
     except Exception as e:
         print(f"⚠️ Redis connection failed: {e}")
-        print("   Running without cache - performance will be degraded")
     
     # 2. Initialize Vector database
     try:
@@ -54,15 +61,13 @@ async def lifespan(app: FastAPI):
         llm = get_llm_service()
         health_check = await llm.health_check()
         if health_check.get("healthy"):
-            print(f"✅ LLM connected: {settings.OLLAMA_MODEL}")
-            if health_check.get("gpu", {}).get("available"):
-                print(f"🎮 GPU acceleration: ENABLED")
-            else:
-                print(f"⚠️ GPU: Not detected (CPU mode)")
+            print(f"✅ Ollama LLM connected: {settings.OLLAMA_MODEL}")
         else:
-            print(f"⚠️ LLM not ready: {health_check.get('error')}")
+            print(f"⚠️ Ollama not ready: {health_check.get('error')}")
     except Exception as e:
         print(f"❌ LLM error: {e}")
+    
+    print("✅ Data directories ready")
     
     # 4. Warmup LLM (background)
     asyncio.create_task(_warmup_llm())
@@ -76,58 +81,53 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # Cleanup
     print("👋 Shutting down...")
-    llm = get_llm_service()
-    await llm.close()
 
 
 async def _warmup_llm():
     """Background LLM warmup"""
     try:
-        await asyncio.sleep(5)  # Wait for other components
+        await asyncio.sleep(5)
         llm = get_llm_service()
         await llm.warmup()
     except Exception as e:
         print(f"Warmup error: {e}")
 
 
-# Create FastAPI app with optimizations
+# Create FastAPI app
 app = FastAPI(
-    title="PDAM Chatbot AI",
+    title="PDAM Chatbot AI Enterprise",
     description="""
-    🤖 High-Performance AI Chatbot untuk PDAM Tirta Moedal Kota Semarang
+    🤖 Enterprise AI Chatbot untuk PDAM Tirta Moedal Kota Semarang
     
-    Features:
-    - ⚡ Response time < 10 detik dengan GPU + Redis
+    ## Features:
+    - ⚡ Multi-Provider AI (OpenAI, Gemini, DeepSeek, Claude, Groq, Ollama)
+    - 🔗 API Integration Manager (Like Postman)
+    - 🎫 Embed Token Management
     - 💬 RAG-powered intelligent answers
     - 📄 Multi-format document training
     - 🔐 PDAM authentication integration
-    - 📊 Performance monitoring & benchmarking
+    - 📊 Performance monitoring
     """,
-    version="2.0.0",
+    version="3.0.0-enterprise",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     lifespan=lifespan,
-    default_response_class=ORJSONResponse  # Faster JSON serialization
+    default_response_class=ORJSONResponse
 )
 
 # === Middleware ===
-
-# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# GZip compression for responses
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
-# Request timing middleware
 @app.middleware("http")
 async def add_timing_header(request: Request, call_next):
     start_time = datetime.now()
@@ -137,13 +137,18 @@ async def add_timing_header(request: Request, call_next):
     return response
 
 
-# === Routers ===
+# === Core Routers ===
 app.include_router(health.router, prefix="/api", tags=["Health"])
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(documents.router, prefix="/api/documents", tags=["Documents"])
 app.include_router(training.router, prefix="/api/training", tags=["Training"])
 app.include_router(monitoring.router, prefix="/api/monitoring", tags=["Monitoring"])
+
+# === Enterprise Routers ===
+app.include_router(api_integrations.router, prefix="/api/integrations", tags=["API Integrations"])
+app.include_router(ai_providers.router, prefix="/api/ai-providers", tags=["AI Providers"])
+app.include_router(embed_tokens.router, prefix="/api/embed-tokens", tags=["Embed Tokens"])
 
 # Static files
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -152,29 +157,21 @@ app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads"
 
 @app.get("/", tags=["Root"])
 async def root():
-    """Root endpoint with system info"""
     return {
-        "name": "PDAM Chatbot AI",
-        "version": "2.0.0 (Optimized)",
+        "name": "PDAM Chatbot AI Enterprise",
+        "version": "3.0.0",
         "status": "running",
+        "features": ["Multi-Provider AI", "API Integration Manager", "Embed Token Management", "RAG Document Search"],
         "endpoints": {
             "docs": "/api/docs",
             "health": "/api/health",
-            "chat": "/api/chat/send",
-            "metrics": "/api/monitoring/metrics",
-            "benchmark": "/api/monitoring/benchmark"
+            "ai_providers": "/api/ai-providers",
+            "integrations": "/api/integrations",
+            "embed_tokens": "/api/embed-tokens"
         }
     }
 
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host=settings.HOST,
-        port=settings.PORT,
-        workers=settings.WORKERS,
-        log_level="warning",  # Reduce logging overhead
-        access_log=False,  # Disable access log for performance
-        loop="uvloop",  # Faster event loop
-        http="httptools"  # Faster HTTP parser
-    )
+    import uvicorn
+    uvicorn.run("main:app", host=settings.HOST, port=settings.PORT, workers=4, log_level="info")

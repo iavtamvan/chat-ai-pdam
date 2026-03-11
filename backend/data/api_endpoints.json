@@ -1,0 +1,54 @@
+[
+  {
+    "id": "07b2ac2c-3cc4-47d1-8401-a7f63ccfe083",
+    "name": "Cek Tagihan",
+    "description": "",
+    "method": "GET",
+    "url": "https://gateway.pdamkotasmg.co.id/api-gw/pengaduan/api/billing/tagihan/air/07600026",
+    "headers": [],
+    "parameters": [],
+    "body_type": "json",
+    "body": null,
+    "auth_type": "none",
+    "auth_config": {},
+    "response_mapping": {},
+    "success_message": null,
+    "error_message": null,
+    "trigger_keywords": [
+      "tagihan",
+      "cek tagihan"
+    ],
+    "auto_execute": false,
+    "display_format": "table",
+    "is_active": true,
+    "created_at": "2026-03-05 05:13:51.789139",
+    "updated_at": "2026-03-05 05:27:35.589601",
+    "category": "billing"
+  },
+  {
+    "id": "1bf84331-59d3-4776-af89-d960cc7862bb",
+    "name": "Cek Tagihan",
+    "description": "",
+    "method": "GET",
+    "url": "https://gateway.pdamkotasmg.co.id/api-gw/pengaduan/api/billing/tagihan/air/{no_pel}",
+    "headers": [],
+    "parameters": [],
+    "body_type": "json",
+    "body": null,
+    "auth_type": "none",
+    "auth_config": {},
+    "response_mapping": {},
+    "success_message": null,
+    "error_message": null,
+    "trigger_keywords": [
+      "tagihan",
+      "cek tagihan"
+    ],
+    "auto_execute": false,
+    "display_format": "table",
+    "is_active": true,
+    "created_at": "2026-03-05 05:28:10.288676",
+    "updated_at": "2026-03-05 05:28:10.288677",
+    "category": "billing"
+  }
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "id": "7da7eb93-3d0f-43c0-a2a3-8d9fba251236",
+    "name": "Cek Tagihan",
+    "method": "GET",
+    "url": "https://gateway.pdamkotasmg.co.id/api-gw/pengaduan/api/billing/tagihan/air/{no_pel}",
+    "category": "billing",
+    "trigger_keywords": [
+      "tagihan",
+      "cek tagihan",
+      "bayar",
+      "billing",
+      "tunggakan"
+    ],
+    "params": [
+      {
+        "name": "no_pel",
+        "type": "path",
+        "pattern": "[A-Za-z0-9]{6,12}"
+      }
+    ],
+    "headers": {},
+    "body_template": "",
+    "response_template": "📋 Info Tagihan PDAM:\n\n👤 Pelanggan:\n- No. Pelanggan: {data.pelanggan.nolangg}\n- Nama: {data.pelanggan.nama}\n- Alamat: {data.pelanggan.alamat}\n- Kelurahan: {data.pelanggan.kelurahan}\n- Kecamatan: {data.pelanggan.kecamatan}\n- Tarif: {data.pelanggan.tarif}\n- Status: {data.pelanggan.status_ket}\n\n💰 Tagihan Bulan Ini ({data.rutin.bulan_name} {data.rutin.tahun}):\n- Pemakaian: {data.rutin.pemakaian}\n- Tagihan: Rp {data.rutin.tagihan}\n- Status: {data.rutin.status_rekening}\n\n📊 Info Meter:\n- Stand Lalu: {data.rutin.stand_lalu}\n- Stand Kini: {data.rutin.stand_kini}",
+    "is_active": true,
+    "created_at": "2026-03-11T02:18:10.190600",
+    "updated_at": "2026-03-11T03:10:29.049419"
+  }
+]

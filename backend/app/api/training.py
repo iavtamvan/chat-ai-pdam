@@ -1,347 +1,420 @@
 """
-Training API Endpoints
-Manage LLM model training and fine-tuning
+Training API Router
+Endpoints for document management, model training, and RAG operations
 """
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import Optional, List, Dict, Any
 from datetime import datetime
+from pathlib import Path
+import json
+import os
+import shutil
 import asyncio
 
-from app.core.config import settings
-from app.services.llm_service import get_ollama_service
-from app.services.document_service import get_document_processor
-from app.core.database import get_document_count
-from app.api.auth import get_current_user, require_admin
+from app.api.auth import get_current_user, get_current_user_optional
 
 router = APIRouter()
 
+# Paths
+DOCUMENTS_DIR = Path("./data/documents")
+TRAINING_STATUS_FILE = Path("./data/training_status.json")
+CHUNKS_DIR = Path("./data/chunks")
 
-# === Pydantic Models ===
-
-class ModelPullRequest(BaseModel):
-    """Request to pull/download a model"""
-    model_name: str = Field(..., description="Model name (e.g., llama3.2:3b, mistral:7b)")
-
-
-class TrainingDataRequest(BaseModel):
-    """Training data for custom model"""
-    examples: List[Dict[str, str]] = Field(
-        ..., 
-        description="List of {'question': '...', 'answer': '...'} pairs"
-    )
-    name: str = Field(..., description="Training dataset name")
+# Ensure directories exist
+DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-class ReindexRequest(BaseModel):
-    """Request to reindex documents"""
-    force: bool = Field(default=False, description="Force reindex all documents")
+# ============================================
+# MODELS
+# ============================================
+
+class TrainingStatus(BaseModel):
+    status: str = "idle"  # idle, processing, completed, error
+    total_documents: int = 0
+    total_chunks: int = 0
+    last_updated: Optional[str] = None
+    error: Optional[str] = None
 
 
-# === Background Tasks ===
-
-async def pull_model_task(model_name: str, status_store: Dict):
-    """Background task to pull model"""
-    status_store["status"] = "downloading"
-    status_store["model"] = model_name
-    status_store["started_at"] = datetime.now().isoformat()
-    
-    ollama = get_ollama_service()
-    success = await ollama.pull_model(model_name)
-    
-    status_store["status"] = "completed" if success else "failed"
-    status_store["completed_at"] = datetime.now().isoformat()
-    status_store["success"] = success
+class DocumentInfo(BaseModel):
+    id: str
+    filename: str
+    size: int
+    uploaded_at: str
+    status: str = "pending"
 
 
-# In-memory status tracking (use Redis in production)
-_training_status: Dict[str, Any] = {}
+# ============================================
+# HELPERS
+# ============================================
+
+def load_training_status() -> Dict:
+    if TRAINING_STATUS_FILE.exists():
+        try:
+            with open(TRAINING_STATUS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {
+        "status": "idle",
+        "total_documents": 0,
+        "total_chunks": 0,
+        "last_updated": None
+    }
 
 
-# === API Endpoints ===
+def save_training_status(status: Dict):
+    TRAINING_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(TRAINING_STATUS_FILE, 'w') as f:
+        json.dump(status, f, indent=2)
+
+
+def get_documents_list() -> List[Dict]:
+    documents = []
+    if DOCUMENTS_DIR.exists():
+        for file in DOCUMENTS_DIR.iterdir():
+            if file.is_file() and not file.name.startswith('.'):
+                stat = file.stat()
+                documents.append({
+                    "id": file.stem,
+                    "filename": file.name,
+                    "size": stat.st_size,
+                    "uploaded_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    "status": "indexed"
+                })
+    return documents
+
+
+def count_chunks() -> int:
+    count = 0
+    if CHUNKS_DIR.exists():
+        for file in CHUNKS_DIR.iterdir():
+            if file.suffix == '.json':
+                count += 1
+    return count
+
+
+# ============================================
+# ENDPOINTS - DOCUMENTS
+# ============================================
+
+@router.get("/documents")
+async def list_documents(
+        current_user: Optional[Dict] = Depends(get_current_user_optional)
+) -> List[Dict]:
+    """List all uploaded documents"""
+    return get_documents_list()
+
+
+@router.post("/documents/upload")
+async def upload_document(
+        file: UploadFile = File(...),
+        current_user: Dict = Depends(get_current_user)
+) -> Dict:
+    """Upload a document for training"""
+
+    # Validate file type
+    allowed_extensions = {'.pdf', '.txt', '.md', '.docx', '.doc'}
+    ext = Path(file.filename).suffix.lower()
+
+    if ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type {ext} not allowed. Allowed: {allowed_extensions}"
+        )
+
+    # Save file
+    file_path = DOCUMENTS_DIR / file.filename
+
+    try:
+        with open(file_path, 'wb') as f:
+            content = await file.read()
+            f.write(content)
+
+        return {
+            "success": True,
+            "filename": file.filename,
+            "size": len(content),
+            "message": "Document uploaded successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/documents/{document_id}")
+async def delete_document(
+        document_id: str,
+        current_user: Dict = Depends(get_current_user)
+) -> Dict:
+    """Delete a document"""
+
+    # Find file with this ID
+    for file in DOCUMENTS_DIR.iterdir():
+        if file.stem == document_id or file.name == document_id:
+            file.unlink()
+            return {"success": True, "message": f"Deleted {file.name}"}
+
+    raise HTTPException(status_code=404, detail="Document not found")
+
+
+# ============================================
+# ENDPOINTS - TRAINING / RETRAIN
+# ============================================
 
 @router.get("/status")
 async def get_training_status(
-    current_user: Dict = Depends(get_current_user)
-):
-    """Get current training/model status"""
-    
-    ollama = get_ollama_service()
-    health = await ollama.health_check()
-    doc_count = await get_document_count()
-    
-    return {
-        "llm_status": health,
-        "document_count": doc_count,
-        "current_operations": _training_status,
-        "settings": {
-            "model": settings.OLLAMA_MODEL,
-            "embedding_model": settings.OLLAMA_EMBEDDING_MODEL,
-            "chunk_size": settings.CHUNK_SIZE,
-            "chunk_overlap": settings.CHUNK_OVERLAP,
-            "top_k_results": settings.TOP_K_RESULTS
-        }
+        current_user: Optional[Dict] = Depends(get_current_user_optional)
+) -> Dict:
+    """Get current training status"""
+    status = load_training_status()
+    status["total_documents"] = len(get_documents_list())
+    status["total_chunks"] = count_chunks()
+    return status
+
+
+@router.post("/retrain")
+async def retrain_documents(
+        background_tasks: BackgroundTasks,
+        current_user: Optional[Dict] = Depends(get_current_user_optional)
+) -> Dict:
+    """Retrain/reindex all documents into vector database"""
+
+    # Update status to processing
+    status = {
+        "status": "processing",
+        "total_documents": len(get_documents_list()),
+        "total_chunks": 0,
+        "last_updated": datetime.now().isoformat(),
+        "error": None
     }
+    save_training_status(status)
+
+    # Run retraining in background
+    background_tasks.add_task(do_retrain)
+
+    return {
+        "success": True,
+        "message": "Retraining started",
+        "status": "processing"
+    }
+
+
+async def do_retrain():
+    """Background task to retrain documents"""
+    try:
+        print("🔄 Starting retrain process...")
+
+        documents = get_documents_list()
+        total_chunks = 0
+
+        # Try to use RAG service if available
+        try:
+            from app.services.rag_service import get_rag_service
+            rag = get_rag_service()
+
+            for doc in documents:
+                file_path = DOCUMENTS_DIR / doc['filename']
+                if file_path.exists():
+                    print(f"📄 Processing: {doc['filename']}")
+
+                    # Read content
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                    except:
+                        with open(file_path, 'rb') as f:
+                            content = f.read().decode('utf-8', errors='ignore')
+
+                    # Simple chunking
+                    chunks = chunk_text(content, chunk_size=500, overlap=50)
+
+                    # Index chunks
+                    for i, chunk in enumerate(chunks):
+                        await rag.index_document({
+                            "id": f"{doc['id']}_{i}",
+                            "content": chunk,
+                            "title": doc['filename'],
+                            "source": doc['filename']
+                        })
+                        total_chunks += 1
+
+            print(f"✅ Retrain completed: {total_chunks} chunks indexed")
+
+        except ImportError:
+            print("⚠️ RAG service not available, doing simple chunk save")
+
+            # Fallback: Just save chunks to files
+            for doc in documents:
+                file_path = DOCUMENTS_DIR / doc['filename']
+                if file_path.exists():
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                    except:
+                        with open(file_path, 'rb') as f:
+                            content = f.read().decode('utf-8', errors='ignore')
+
+                    chunks = chunk_text(content, chunk_size=500, overlap=50)
+
+                    for i, chunk in enumerate(chunks):
+                        chunk_file = CHUNKS_DIR / f"{doc['id']}_{i}.json"
+                        with open(chunk_file, 'w', encoding='utf-8') as f:
+                            json.dump({
+                                "id": f"{doc['id']}_{i}",
+                                "content": chunk,
+                                "source": doc['filename']
+                            }, f, ensure_ascii=False)
+                        total_chunks += 1
+
+        # Update status
+        status = {
+            "status": "completed",
+            "total_documents": len(documents),
+            "total_chunks": total_chunks,
+            "last_updated": datetime.now().isoformat(),
+            "error": None
+        }
+        save_training_status(status)
+
+    except Exception as e:
+        print(f"❌ Retrain error: {e}")
+        status = {
+            "status": "error",
+            "total_documents": len(get_documents_list()),
+            "total_chunks": count_chunks(),
+            "last_updated": datetime.now().isoformat(),
+            "error": str(e)
+        }
+        save_training_status(status)
+
+
+def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
+    """Split text into chunks with overlap"""
+    chunks = []
+    start = 0
+    text_len = len(text)
+
+    while start < text_len:
+        end = start + chunk_size
+        chunk = text[start:end]
+
+        # Try to break at sentence boundary
+        if end < text_len:
+            last_period = chunk.rfind('.')
+            last_newline = chunk.rfind('\n')
+            break_point = max(last_period, last_newline)
+
+            if break_point > chunk_size * 0.5:
+                chunk = text[start:start + break_point + 1]
+                end = start + break_point + 1
+
+        chunks.append(chunk.strip())
+        start = end - overlap
+
+    return [c for c in chunks if c]
+
+
+# ============================================
+# ENDPOINTS - OLLAMA MODEL MANAGEMENT
+# ============================================
+
+@router.get("/models")
+async def list_models(
+        current_user: Optional[Dict] = Depends(get_current_user_optional)
+) -> Dict:
+    """List available Ollama models"""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get("http://ollama:11434/api/tags")
+            if resp.status_code == 200:
+                data = resp.json()
+                return {
+                    "success": True,
+                    "models": data.get("models", [])
+                }
+            return {"success": False, "models": [], "error": f"Status {resp.status_code}"}
+    except Exception as e:
+        return {"success": False, "models": [], "error": str(e)}
 
 
 @router.post("/pull-model")
 async def pull_model(
-    request: ModelPullRequest,
-    background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(require_admin)
-):
-    """
-    Pull/download a new model from Ollama
-    
-    Popular models:
-    - llama3.2:3b - Fast, good for most tasks
-    - llama3.2:1b - Very fast, lightweight
-    - mistral:7b - High quality
-    - gemma2:2b - Google's model, efficient
-    - qwen2.5:3b - Good for Indonesian
-    """
-    
-    # Check if already downloading
-    if _training_status.get("status") == "downloading":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Sedang download model: {_training_status.get('model')}"
-        )
-    
-    # Start background download
-    _training_status.clear()
-    background_tasks.add_task(pull_model_task, request.model_name, _training_status)
-    
+        model_name: str = Form(...),
+        background_tasks: BackgroundTasks = None,
+        current_user: Optional[Dict] = Depends(get_current_user_optional)
+) -> Dict:
+    """Pull/download an Ollama model"""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(
+                "http://ollama:11434/api/pull",
+                json={"name": model_name, "stream": False}
+            )
+
+            if resp.status_code == 200:
+                return {
+                    "success": True,
+                    "message": f"Model {model_name} pulled successfully"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": resp.text
+                }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.delete("/models/{model_name}")
+async def delete_model(
+        model_name: str,
+        current_user: Dict = Depends(get_current_user)
+) -> Dict:
+    """Delete an Ollama model"""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.delete(
+                "http://ollama:11434/api/delete",
+                json={"name": model_name}
+            )
+
+            if resp.status_code == 200:
+                return {"success": True, "message": f"Model {model_name} deleted"}
+            else:
+                return {"success": False, "error": resp.text}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ============================================
+# ENDPOINTS - STATS
+# ============================================
+
+@router.get("/stats/overview")
+async def get_stats_overview(
+        current_user: Optional[Dict] = Depends(get_current_user_optional)
+) -> Dict:
+    """Get training stats overview"""
+    documents = get_documents_list()
+    status = load_training_status()
+
+    total_size = sum(d.get('size', 0) for d in documents)
+
     return {
-        "message": f"Mulai download model: {request.model_name}",
-        "status": "started",
-        "model": request.model_name,
-        "check_status": "/api/training/status"
-    }
-
-
-@router.get("/models/available")
-async def get_available_models():
-    """Get list of available Ollama models to download"""
-    
-    # Popular models for Indonesian chatbot
-    recommended_models = [
-        {
-            "name": "llama3.2:3b",
-            "size": "2GB",
-            "description": "Recommended - Fast and good quality",
-            "language": "Multilingual (termasuk Indonesia)"
-        },
-        {
-            "name": "llama3.2:1b", 
-            "size": "1.3GB",
-            "description": "Very fast, good for limited resources",
-            "language": "Multilingual"
-        },
-        {
-            "name": "mistral:7b",
-            "size": "4.1GB",
-            "description": "High quality, needs more RAM",
-            "language": "Multilingual"
-        },
-        {
-            "name": "gemma2:2b",
-            "size": "1.6GB",
-            "description": "Google's efficient model",
-            "language": "Multilingual"
-        },
-        {
-            "name": "qwen2.5:3b",
-            "size": "1.9GB",
-            "description": "Good for Asian languages",
-            "language": "Multilingual (bagus untuk Indonesia)"
-        },
-        {
-            "name": "phi3:mini",
-            "size": "2.3GB",
-            "description": "Microsoft's efficient model",
-            "language": "Multilingual"
-        },
-        {
-            "name": "nomic-embed-text",
-            "size": "274MB",
-            "description": "Embedding model for RAG",
-            "language": "Multilingual"
-        }
-    ]
-    
-    ollama = get_ollama_service()
-    health = await ollama.health_check()
-    installed = health.get("available_models", [])
-    
-    # Mark which are installed
-    for model in recommended_models:
-        model["installed"] = (
-            model["name"] in installed or 
-            f"{model['name']}:latest" in installed
-        )
-    
-    return {
-        "recommended": recommended_models,
-        "installed": installed,
-        "current_chat_model": settings.OLLAMA_MODEL,
-        "current_embedding_model": settings.OLLAMA_EMBEDDING_MODEL
-    }
-
-
-@router.post("/reindex")
-async def reindex_documents(
-    request: ReindexRequest,
-    background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(require_admin)
-):
-    """
-    Reindex all documents with current embedding model
-    
-    Useful after changing embedding model or settings
-    """
-    
-    # TODO: Implement reindexing logic
-    # This would:
-    # 1. Get all documents from storage
-    # 2. Re-chunk them
-    # 3. Generate new embeddings
-    # 4. Update vector database
-    
-    return {
-        "message": "Reindex dimulai di background",
-        "force": request.force,
-        "note": "Fitur ini akan diimplementasi dengan queue system"
-    }
-
-
-@router.post("/add-examples")
-async def add_training_examples(
-    request: TrainingDataRequest,
-    current_user: Dict = Depends(require_admin)
-):
-    """
-    Add Q&A examples for training
-    
-    These will be stored and used to improve responses
-    """
-    
-    doc_processor = get_document_processor()
-    ollama = get_ollama_service()
-    
-    # Format examples as documents
-    documents = []
-    for i, example in enumerate(request.examples):
-        doc_text = f"""Pertanyaan: {example.get('question', '')}
-Jawaban: {example.get('answer', '')}"""
-        documents.append(doc_text)
-    
-    # Generate embeddings
-    embeddings = await ollama.get_embeddings_batch(documents)
-    
-    # Add to database
-    from app.core.database import add_documents
-    import hashlib
-    from datetime import datetime
-    
-    ids = []
-    metadatas = []
-    for i, doc in enumerate(documents):
-        doc_id = hashlib.md5(f"{request.name}_{i}_{doc[:50]}".encode()).hexdigest()[:16]
-        ids.append(doc_id)
-        metadatas.append({
-            "type": "training_example",
-            "dataset_name": request.name,
-            "created_at": datetime.now().isoformat(),
-            "created_by": current_user.get("npp", "unknown")
-        })
-    
-    success = await add_documents(
-        documents=documents,
-        embeddings=embeddings,
-        metadatas=metadatas,
-        ids=ids
-    )
-    
-    return {
-        "success": success,
-        "message": f"Added {len(documents)} training examples",
-        "dataset_name": request.name
-    }
-
-
-@router.get("/benchmark")
-async def run_benchmark(
-    questions: int = Query(5, ge=1, le=20, description="Number of test questions"),
-    current_user: Dict = Depends(get_current_user)
-):
-    """Run a simple benchmark to test system performance"""
-    
-    test_questions = [
-        "Bagaimana cara cek tagihan air PDAM?",
-        "Apa syarat untuk pemasangan baru?",
-        "Dimana loket pembayaran terdekat?",
-        "Bagaimana cara lapor kebocoran?",
-        "Berapa tarif air per meter kubik?"
-    ][:questions]
-    
-    from app.services.rag_service import get_rag_service
-    rag = get_rag_service()
-    
-    results = []
-    total_time = 0
-    
-    for q in test_questions:
-        start = datetime.now()
-        response = await rag.generate_answer(q, use_rag=True)
-        elapsed = (datetime.now() - start).total_seconds()
-        total_time += elapsed
-        
-        results.append({
-            "question": q,
-            "response_time": round(elapsed, 2),
-            "has_sources": len(response.get("sources", [])) > 0,
-            "answer_length": len(response.get("answer", ""))
-        })
-    
-    return {
-        "benchmark_results": results,
-        "total_questions": len(test_questions),
-        "total_time": round(total_time, 2),
-        "average_time": round(total_time / len(test_questions), 2),
-        "model": settings.OLLAMA_MODEL
-    }
-
-
-@router.post("/change-model")
-async def change_active_model(
-    model_name: str = Query(..., description="Model name to switch to"),
-    current_user: Dict = Depends(require_admin)
-):
-    """
-    Change the active LLM model
-    
-    Note: Model must be installed first via /pull-model
-    """
-    
-    ollama = get_ollama_service()
-    health = await ollama.health_check()
-    
-    available = health.get("available_models", [])
-    
-    if model_name not in available and f"{model_name}:latest" not in available:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Model '{model_name}' belum terinstall. Download dulu via /pull-model"
-        )
-    
-    # Update settings (in production, save to database/env)
-    settings.OLLAMA_MODEL = model_name
-    ollama.model = model_name
-    
-    return {
-        "success": True,
-        "message": f"Model berhasil diganti ke {model_name}",
-        "current_model": model_name
+        "total_documents": len(documents),
+        "total_chunks": count_chunks(),
+        "total_size_bytes": total_size,
+        "total_size_mb": round(total_size / (1024 * 1024), 2),
+        "training_status": status.get("status", "idle"),
+        "last_trained": status.get("last_updated")
     }

@@ -1,538 +1,681 @@
-<script setup lang="ts">
-import { useAuthStore } from '~/composables/useAuth'
-
-definePageMeta({
-  title: 'Admin Dashboard',
-  middleware: 'auth'
-})
-
-const config = useRuntimeConfig()
-const authStore = useAuthStore()
-
-// State
-const activeTab = ref('documents')
-const isLoading = ref(false)
-const stats = ref<any>(null)
-const documents = ref<any[]>([])
-const models = ref<any>(null)
-const trainingStatus = ref<any>(null)
-
-// Upload state
-const uploadFiles = ref<File[]>([])
-const uploadCategory = ref('general')
-const uploadProgress = ref(0)
-const uploadMessage = ref('')
-
-// Fetch stats
-const fetchStats = async () => {
-  try {
-    const response = await fetch(`${config.public.apiUrl}/api/documents/stats`, {
-      headers: {
-        'Authorization': `Bearer ${authStore.accessToken}`
-      }
-    })
-    stats.value = await response.json()
-  } catch (error) {
-    console.error('Error fetching stats:', error)
-  }
-}
-
-// Fetch documents
-const fetchDocuments = async () => {
-  try {
-    const response = await fetch(`${config.public.apiUrl}/api/documents/list`, {
-      headers: {
-        'Authorization': `Bearer ${authStore.accessToken}`
-      }
-    })
-    const data = await response.json()
-    documents.value = data.documents || []
-  } catch (error) {
-    console.error('Error fetching documents:', error)
-  }
-}
-
-// Fetch models
-const fetchModels = async () => {
-  try {
-    const response = await fetch(`${config.public.apiUrl}/api/training/models/available`, {
-      headers: {
-        'Authorization': `Bearer ${authStore.accessToken}`
-      }
-    })
-    models.value = await response.json()
-  } catch (error) {
-    console.error('Error fetching models:', error)
-  }
-}
-
-// Fetch training status
-const fetchTrainingStatus = async () => {
-  try {
-    const response = await fetch(`${config.public.apiUrl}/api/training/status`, {
-      headers: {
-        'Authorization': `Bearer ${authStore.accessToken}`
-      }
-    })
-    trainingStatus.value = await response.json()
-  } catch (error) {
-    console.error('Error fetching training status:', error)
-  }
-}
-
-// Handle file upload
-const handleFileSelect = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  if (target.files) {
-    uploadFiles.value = Array.from(target.files)
-  }
-}
-
-const handleUpload = async () => {
-  if (uploadFiles.value.length === 0) return
-
-  isLoading.value = true
-  uploadProgress.value = 0
-  uploadMessage.value = ''
-
-  try {
-    for (let i = 0; i < uploadFiles.value.length; i++) {
-      const file = uploadFiles.value[i]
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('category', uploadCategory.value)
-
-      const response = await fetch(`${config.public.apiUrl}/api/documents/upload`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authStore.accessToken}`
-        },
-        body: formData
-      })
-
-      const result = await response.json()
-      uploadProgress.value = Math.round(((i + 1) / uploadFiles.value.length) * 100)
-      
-      if (!result.success) {
-        uploadMessage.value = `❌ Error: ${result.message}`
-      }
-    }
-
-    uploadMessage.value = `✅ Berhasil upload ${uploadFiles.value.length} file`
-    uploadFiles.value = []
-    
-    // Refresh data
-    await fetchStats()
-    await fetchDocuments()
-  } catch (error: any) {
-    uploadMessage.value = `❌ Error: ${error.message}`
-  } finally {
-    isLoading.value = false
-  }
-}
-
-// Delete document
-const deleteDocument = async (filename: string) => {
-  if (!confirm(`Hapus dokumen "${filename}"?`)) return
-
-  try {
-    const response = await fetch(`${config.public.apiUrl}/api/documents/${encodeURIComponent(filename)}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${authStore.accessToken}`
-      }
-    })
-    
-    const result = await response.json()
-    if (result.success) {
-      await fetchStats()
-      await fetchDocuments()
-    }
-  } catch (error) {
-    console.error('Error deleting document:', error)
-  }
-}
-
-// Pull model
-const pullModel = async (modelName: string) => {
-  if (!confirm(`Download model "${modelName}"? Ini mungkin membutuhkan waktu beberapa menit.`)) return
-
-  try {
-    const response = await fetch(`${config.public.apiUrl}/api/training/pull-model`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${authStore.accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ model_name: modelName })
-    })
-    
-    const result = await response.json()
-    alert(result.message)
-    
-    // Start polling for status
-    const interval = setInterval(async () => {
-      await fetchTrainingStatus()
-      if (trainingStatus.value?.current_operations?.status !== 'downloading') {
-        clearInterval(interval)
-        await fetchModels()
-      }
-    }, 5000)
-  } catch (error) {
-    console.error('Error pulling model:', error)
-  }
-}
-
-// Run benchmark
-const runBenchmark = async () => {
-  isLoading.value = true
-  try {
-    const response = await fetch(`${config.public.apiUrl}/api/training/benchmark?questions=5`, {
-      headers: {
-        'Authorization': `Bearer ${authStore.accessToken}`
-      }
-    })
-    const result = await response.json()
-    alert(`Benchmark selesai!\n\nTotal waktu: ${result.total_time}s\nRata-rata: ${result.average_time}s per pertanyaan`)
-  } catch (error) {
-    console.error('Error running benchmark:', error)
-  } finally {
-    isLoading.value = false
-  }
-}
-
-// Initialize
-onMounted(async () => {
-  await Promise.all([
-    fetchStats(),
-    fetchDocuments(),
-    fetchModels(),
-    fetchTrainingStatus()
-  ])
-})
-</script>
-
 <template>
-  <div class="max-w-7xl mx-auto px-4 py-8">
+  <div class="min-h-screen bg-gray-50">
     <!-- Header -->
-    <div class="mb-8">
-      <h1 class="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-      <p class="text-gray-600 mt-1">Kelola dokumen dan training AI chatbot</p>
-    </div>
-
-    <!-- Stats Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-      <div class="card">
-        <div class="flex items-center gap-4">
-          <div class="w-12 h-12 rounded-xl bg-primary-100 flex items-center justify-center">
-            <Icon name="heroicons:document-text" class="w-6 h-6 text-primary-600" />
-          </div>
-          <div>
-            <p class="text-2xl font-bold text-gray-900">{{ stats?.unique_documents || 0 }}</p>
-            <p class="text-sm text-gray-500">Dokumen</p>
-          </div>
-        </div>
-      </div>
-      
-      <div class="card">
-        <div class="flex items-center gap-4">
-          <div class="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center">
-            <Icon name="heroicons:cube" class="w-6 h-6 text-green-600" />
-          </div>
-          <div>
-            <p class="text-2xl font-bold text-gray-900">{{ stats?.total_chunks || 0 }}</p>
-            <p class="text-sm text-gray-500">Chunks</p>
-          </div>
-        </div>
-      </div>
-      
-      <div class="card">
-        <div class="flex items-center gap-4">
-          <div class="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center">
-            <Icon name="heroicons:cpu-chip" class="w-6 h-6 text-purple-600" />
-          </div>
-          <div>
-            <p class="text-2xl font-bold text-gray-900">{{ models?.installed?.length || 0 }}</p>
-            <p class="text-sm text-gray-500">Model AI</p>
-          </div>
-        </div>
-      </div>
-      
-      <div class="card">
-        <div class="flex items-center gap-4">
-          <div class="w-12 h-12 rounded-xl bg-cyan-100 flex items-center justify-center">
-            <Icon name="heroicons:server" class="w-6 h-6 text-cyan-600" />
-          </div>
-          <div>
-            <p class="text-2xl font-bold text-gray-900">{{ stats?.storage_used_mb || 0 }} MB</p>
-            <p class="text-sm text-gray-500">Storage</p>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Tabs -->
-    <div class="border-b border-gray-200 mb-6">
-      <nav class="flex gap-8">
-        <button
-          @click="activeTab = 'documents'"
-          :class="[
-            'pb-4 px-1 text-sm font-medium border-b-2 transition-colors',
-            activeTab === 'documents' 
-              ? 'border-primary-500 text-primary-600' 
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          ]"
-        >
-          📄 Dokumen
-        </button>
-        <button
-          @click="activeTab = 'upload'"
-          :class="[
-            'pb-4 px-1 text-sm font-medium border-b-2 transition-colors',
-            activeTab === 'upload' 
-              ? 'border-primary-500 text-primary-600' 
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          ]"
-        >
-          ⬆️ Upload
-        </button>
-        <button
-          @click="activeTab = 'models'"
-          :class="[
-            'pb-4 px-1 text-sm font-medium border-b-2 transition-colors',
-            activeTab === 'models' 
-              ? 'border-primary-500 text-primary-600' 
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          ]"
-        >
-          🤖 Model AI
-        </button>
-        <button
-          @click="activeTab = 'training'"
-          :class="[
-            'pb-4 px-1 text-sm font-medium border-b-2 transition-colors',
-            activeTab === 'training' 
-              ? 'border-primary-500 text-primary-600' 
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          ]"
-        >
-          🎯 Training
-        </button>
-      </nav>
-    </div>
-
-    <!-- Documents Tab -->
-    <div v-if="activeTab === 'documents'" class="card">
-      <h2 class="text-xl font-semibold text-gray-900 mb-4">Daftar Dokumen</h2>
-      
-      <div v-if="documents.length === 0" class="text-center py-12 text-gray-500">
-        <Icon name="heroicons:document" class="w-12 h-12 mx-auto mb-4 opacity-50" />
-        <p>Belum ada dokumen. Upload dokumen untuk training AI.</p>
-      </div>
-      
-      <div v-else class="space-y-3">
-        <div 
-          v-for="doc in documents" 
-          :key="doc"
-          class="flex items-center justify-between p-4 bg-gray-50 rounded-xl"
-        >
-          <div class="flex items-center gap-3">
-            <Icon name="heroicons:document-text" class="w-8 h-8 text-primary-500" />
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between items-center h-16">
+          <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center">
+              <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
+              </svg>
+            </div>
             <div>
-              <p class="font-medium text-gray-900">{{ doc }}</p>
+              <h1 class="text-xl font-bold text-gray-800">PDAM Chatbot</h1>
+              <p class="text-xs text-gray-500">Tirta Moedal Semarang</p>
             </div>
           </div>
-          <button
-            @click="deleteDocument(doc)"
-            class="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-          >
-            <Icon name="heroicons:trash" class="w-5 h-5" />
-          </button>
-        </div>
-      </div>
-    </div>
 
-    <!-- Upload Tab -->
-    <div v-if="activeTab === 'upload'" class="card">
-      <h2 class="text-xl font-semibold text-gray-900 mb-4">Upload Dokumen</h2>
-      
-      <div class="space-y-6">
-        <!-- File Input -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">
-            Pilih File
-          </label>
-          <div class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-primary-400 transition-colors">
-            <input
-              type="file"
-              multiple
-              accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.md,.jpg,.jpeg,.png"
-              @change="handleFileSelect"
-              class="hidden"
-              id="fileInput"
-            />
-            <label for="fileInput" class="cursor-pointer">
-              <Icon name="heroicons:cloud-arrow-up" class="w-12 h-12 mx-auto text-gray-400 mb-4" />
-              <p class="text-gray-600">Klik untuk upload atau drag & drop</p>
-              <p class="text-sm text-gray-400 mt-1">PDF, Word, Excel, Image, Text (Max 50MB)</p>
-            </label>
-          </div>
-          
-          <!-- Selected Files -->
-          <div v-if="uploadFiles.length > 0" class="mt-4 space-y-2">
-            <div 
-              v-for="(file, index) in uploadFiles" 
-              :key="index"
-              class="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+          <nav class="flex items-center space-x-6">
+            <NuxtLink to="/" class="text-gray-600 hover:text-blue-600 font-medium">Chat</NuxtLink>
+            <NuxtLink to="/admin" class="text-blue-600 font-medium">Admin</NuxtLink>
+          </nav>
+
+          <div class="flex items-center space-x-4">
+            <!-- Enterprise Settings Button -->
+            <NuxtLink
+                to="/enterprise"
+                class="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all shadow-md"
             >
-              <span class="text-sm text-gray-700">{{ file.name }}</span>
-              <span class="text-xs text-gray-500">{{ (file.size / 1024).toFixed(1) }} KB</span>
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+              </svg>
+              <span class="font-medium">Enterprise Settings</span>
+              <span class="text-xs bg-white/20 px-2 py-0.5 rounded">AI, API, Tokens</span>
+            </NuxtLink>
+
+            <div class="flex items-center space-x-2 text-gray-600">
+              <span class="text-sm font-medium">{{ auth.userName }}</span>
+              <span class="text-xs bg-gray-100 px-2 py-1 rounded">{{ userRole }}</span>
+            </div>
+            <button @click="handleLogout" class="p-2 text-gray-400 hover:text-red-500">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div class="mb-8">
+        <h2 class="text-2xl font-bold text-gray-800">Admin Dashboard</h2>
+        <p class="text-gray-600">Kelola dokumen dan training AI chatbot</p>
+      </div>
+
+      <!-- Stats Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <div class="flex items-center space-x-4">
+            <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+              <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+            </div>
+            <div>
+              <p class="text-2xl font-bold text-gray-800">{{ stats.documents }}</p>
+              <p class="text-sm text-gray-500">Dokumen</p>
             </div>
           </div>
         </div>
 
-        <!-- Category -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">
-            Kategori
-          </label>
-          <select
-            v-model="uploadCategory"
-            class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500"
-          >
-            <option value="general">Umum</option>
-            <option value="tarif">Tarif & Pembayaran</option>
-            <option value="pemasangan">Pemasangan Baru</option>
-            <option value="pengaduan">Pengaduan</option>
-            <option value="prosedur">Prosedur & SOP</option>
-            <option value="faq">FAQ</option>
-          </select>
-        </div>
-
-        <!-- Progress -->
-        <div v-if="uploadProgress > 0" class="space-y-2">
-          <div class="w-full bg-gray-200 rounded-full h-2">
-            <div 
-              class="bg-primary-500 h-2 rounded-full transition-all" 
-              :style="{ width: uploadProgress + '%' }"
-            ></div>
+        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <div class="flex items-center space-x-4">
+            <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+              <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+            <div>
+              <p class="text-2xl font-bold text-gray-800">{{ stats.chunks }}</p>
+              <p class="text-sm text-gray-500">Chunks</p>
+            </div>
           </div>
-          <p class="text-sm text-gray-600">{{ uploadProgress }}%</p>
         </div>
 
-        <!-- Message -->
-        <div v-if="uploadMessage" class="p-4 rounded-xl" :class="uploadMessage.startsWith('✅') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'">
-          {{ uploadMessage }}
+        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <div class="flex items-center space-x-4">
+            <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+              <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+              </svg>
+            </div>
+            <div>
+              <p class="text-2xl font-bold text-gray-800">{{ stats.models }}</p>
+              <p class="text-sm text-gray-500">Model AI</p>
+            </div>
+          </div>
         </div>
 
-        <!-- Upload Button -->
-        <button
-          @click="handleUpload"
-          :disabled="uploadFiles.length === 0 || isLoading"
-          class="btn-primary w-full"
-        >
-          <span v-if="isLoading">Uploading...</span>
-          <span v-else>Upload {{ uploadFiles.length }} File</span>
-        </button>
+        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <div class="flex items-center space-x-4">
+            <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+              <svg class="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/>
+              </svg>
+            </div>
+            <div>
+              <p class="text-2xl font-bold text-gray-800">{{ stats.storage }}</p>
+              <p class="text-sm text-gray-500">Storage</p>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <!-- Models Tab -->
-    <div v-if="activeTab === 'models'" class="card">
-      <h2 class="text-xl font-semibold text-gray-900 mb-4">Model AI</h2>
-      
-      <div class="space-y-4">
-        <div 
-          v-for="model in models?.recommended" 
-          :key="model.name"
-          class="flex items-center justify-between p-4 border border-gray-200 rounded-xl"
-        >
-          <div>
-            <div class="flex items-center gap-2">
-              <p class="font-semibold text-gray-900">{{ model.name }}</p>
-              <span 
-                v-if="model.installed" 
-                class="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full"
+      <!-- Tabs -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div class="border-b border-gray-200">
+          <nav class="flex space-x-8 px-6">
+            <button
+                v-for="tab in tabs"
+                :key="tab.id"
+                @click="activeTab = tab.id"
+                :class="[
+                'py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2',
+                activeTab === tab.id
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              ]"
+            >
+              <span>{{ tab.icon }}</span>
+              <span>{{ tab.name }}</span>
+            </button>
+          </nav>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="p-6">
+          <!-- Documents Tab -->
+          <div v-if="activeTab === 'documents'">
+            <div class="flex justify-between items-center mb-6">
+              <h3 class="text-lg font-semibold">Dokumen Training</h3>
+              <button
+                  @click="refreshDocuments"
+                  class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center space-x-2"
               >
-                Installed
-              </span>
-              <span 
-                v-if="models?.current_chat_model === model.name" 
-                class="px-2 py-0.5 bg-primary-100 text-primary-700 text-xs rounded-full"
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            <div v-if="documents.length === 0" class="text-center py-12 text-gray-500">
+              <svg class="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              <p>Belum ada dokumen. Upload dokumen di tab Upload.</p>
+            </div>
+
+            <div v-else class="space-y-3">
+              <div
+                  v-for="doc in documents"
+                  :key="doc.id"
+                  class="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
               >
-                Active
-              </span>
-            </div>
-            <p class="text-sm text-gray-500 mt-1">{{ model.description }}</p>
-            <p class="text-xs text-gray-400">Size: {{ model.size }} | {{ model.language }}</p>
-          </div>
-          
-          <button
-            v-if="!model.installed"
-            @click="pullModel(model.name)"
-            class="btn-secondary text-sm"
-          >
-            Download
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Training Tab -->
-    <div v-if="activeTab === 'training'" class="card">
-      <h2 class="text-xl font-semibold text-gray-900 mb-4">Training & Status</h2>
-      
-      <div class="grid md:grid-cols-2 gap-6">
-        <!-- LLM Status -->
-        <div class="p-4 bg-gray-50 rounded-xl">
-          <h3 class="font-medium text-gray-900 mb-3">Status LLM</h3>
-          <div class="space-y-2 text-sm">
-            <div class="flex justify-between">
-              <span class="text-gray-500">Server:</span>
-              <span :class="trainingStatus?.llm_status?.healthy ? 'text-green-600' : 'text-red-600'">
-                {{ trainingStatus?.llm_status?.healthy ? '✅ Online' : '❌ Offline' }}
-              </span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-gray-500">Model:</span>
-              <span class="text-gray-900">{{ trainingStatus?.settings?.model }}</span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-gray-500">Embedding:</span>
-              <span class="text-gray-900">{{ trainingStatus?.settings?.embedding_model }}</span>
+                <div class="flex items-center space-x-3">
+                  <div class="w-10 h-10 bg-blue-100 rounded flex items-center justify-center">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <p class="font-medium text-gray-800">{{ doc.title || doc.filename }}</p>
+                    <p class="text-sm text-gray-500">{{ doc.chunks || 0 }} chunks • {{ formatDate(doc.created_at) }}</p>
+                  </div>
+                </div>
+                <button
+                    @click="deleteDocument(doc.id)"
+                    class="p-2 text-red-500 hover:bg-red-50 rounded"
+                >
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Vector DB Status -->
-        <div class="p-4 bg-gray-50 rounded-xl">
-          <h3 class="font-medium text-gray-900 mb-3">Vector Database</h3>
-          <div class="space-y-2 text-sm">
-            <div class="flex justify-between">
-              <span class="text-gray-500">Dokumen:</span>
-              <span class="text-gray-900">{{ trainingStatus?.document_count || 0 }} chunks</span>
+          <!-- Upload Tab -->
+          <div v-if="activeTab === 'upload'">
+            <h3 class="text-lg font-semibold mb-6">Upload Dokumen</h3>
+
+            <div
+                @drop.prevent="handleDrop"
+                @dragover.prevent="isDragging = true"
+                @dragleave="isDragging = false"
+                :class="[
+                'border-2 border-dashed rounded-xl p-12 text-center transition-colors',
+                isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
+              ]"
+            >
+              <input
+                  type="file"
+                  ref="fileInput"
+                  @change="handleFileSelect"
+                  accept=".pdf,.txt,.docx,.doc,.md"
+                  class="hidden"
+                  multiple
+              />
+
+              <svg class="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+              </svg>
+
+              <p class="text-gray-600 mb-2">Drag & drop file atau</p>
+              <button
+                  @click="$refs.fileInput.click()"
+                  class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Pilih File
+              </button>
+              <p class="text-sm text-gray-500 mt-2">PDF, TXT, DOCX, MD (Max 10MB)</p>
             </div>
-            <div class="flex justify-between">
-              <span class="text-gray-500">Chunk Size:</span>
-              <span class="text-gray-900">{{ trainingStatus?.settings?.chunk_size }}</span>
+
+            <!-- Upload Progress -->
+            <div v-if="uploadProgress > 0" class="mt-4">
+              <div class="flex justify-between text-sm text-gray-600 mb-1">
+                <span>Uploading...</span>
+                <span>{{ uploadProgress }}%</span>
+              </div>
+              <div class="w-full bg-gray-200 rounded-full h-2">
+                <div
+                    class="bg-blue-600 h-2 rounded-full transition-all"
+                    :style="{ width: uploadProgress + '%' }"
+                ></div>
+              </div>
             </div>
-            <div class="flex justify-between">
-              <span class="text-gray-500">Top K:</span>
-              <span class="text-gray-900">{{ trainingStatus?.settings?.top_k_results }}</span>
+          </div>
+
+          <!-- Model AI Tab -->
+          <div v-if="activeTab === 'models'">
+            <div class="flex justify-between items-center mb-6">
+              <h3 class="text-lg font-semibold">Model AI</h3>
+              <button
+                  @click="checkOllamaModels"
+                  class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center space-x-2"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                <span>Check Status</span>
+              </button>
+            </div>
+
+            <div class="space-y-4">
+              <div
+                  v-for="model in availableModels"
+                  :key="model.name"
+                  class="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
+              >
+                <div>
+                  <div class="flex items-center space-x-2">
+                    <p class="font-medium text-gray-800">{{ model.name }}</p>
+                    <span
+                        v-if="model.installed"
+                        class="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full"
+                    >
+                      Active
+                    </span>
+                  </div>
+                  <p class="text-sm text-gray-500">{{ model.description }}</p>
+                  <p class="text-xs text-gray-400">Size: {{ model.size }} | {{ model.features }}</p>
+                </div>
+                <button
+                    v-if="!model.installed"
+                    @click="downloadModel(model.name)"
+                    :disabled="downloadingModel === model.name"
+                    class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 flex items-center space-x-2"
+                >
+                  <svg v-if="downloadingModel === model.name" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>{{ downloadingModel === model.name ? 'Downloading...' : 'Download' }}</span>
+                </button>
+                <span v-else class="text-green-600 flex items-center space-x-1">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                  </svg>
+                  <span>Installed</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Training Tab -->
+          <div v-if="activeTab === 'training'">
+            <h3 class="text-lg font-semibold mb-6">Training Status</h3>
+
+            <div class="bg-gray-50 rounded-lg p-6">
+              <div class="flex items-center justify-between mb-4">
+                <div>
+                  <p class="font-medium text-gray-800">Vector Database</p>
+                  <p class="text-sm text-gray-500">Status embedding dokumen</p>
+                </div>
+                <span
+                    :class="[
+                    'px-3 py-1 rounded-full text-sm',
+                    trainingStatus.ready ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                  ]"
+                >
+                  {{ trainingStatus.ready ? 'Ready' : 'Processing' }}
+                </span>
+              </div>
+
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between">
+                  <span class="text-gray-500">Total Dokumen:</span>
+                  <span class="font-medium">{{ trainingStatus.documents }}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-500">Total Chunks:</span>
+                  <span class="font-medium">{{ trainingStatus.chunks }}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-500">Last Updated:</span>
+                  <span class="font-medium">{{ trainingStatus.lastUpdated || 'Never' }}</span>
+                </div>
+              </div>
+
+              <button
+                  @click="retrainAll"
+                  :disabled="isRetraining"
+                  class="mt-4 w-full py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+              >
+                {{ isRetraining ? 'Retraining...' : 'Retrain All Documents' }}
+              </button>
             </div>
           </div>
         </div>
       </div>
+    </main>
 
-      <!-- Actions -->
-      <div class="mt-6 flex flex-wrap gap-4">
-        <button @click="runBenchmark" :disabled="isLoading" class="btn-primary">
-          🏃 Run Benchmark
-        </button>
-        <button @click="fetchTrainingStatus" class="btn-secondary">
-          🔄 Refresh Status
-        </button>
-      </div>
+    <!-- Toast Notification -->
+    <div
+        v-if="toast.show"
+        :class="[
+        'fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white transition-all z-50',
+        toast.type === 'success' ? 'bg-green-600' : toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'
+      ]"
+    >
+      {{ toast.message }}
     </div>
   </div>
 </template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuth } from '~/composables/useAuth'
+
+const router = useRouter()
+const auth = useAuth()
+
+// Computed for user role
+const userRole = computed(() => {
+  return auth.user?.jabatan || auth.user?.satker || 'Staf'
+})
+
+// Check auth on mount
+onMounted(() => {
+  if (!auth.isLoggedIn) {
+    router.push('/login')
+    return
+  }
+  loadDashboardData()
+})
+
+// State
+const activeTab = ref('documents')
+const isDragging = ref(false)
+const uploadProgress = ref(0)
+const downloadingModel = ref(null)
+const isRetraining = ref(false)
+
+const tabs = [
+  { id: 'documents', name: 'Dokumen', icon: '📄' },
+  { id: 'upload', name: 'Upload', icon: '📁' },
+  { id: 'models', name: 'Model AI', icon: '🤖' },
+  { id: 'training', name: 'Training', icon: '🎯' }
+]
+
+const stats = ref({
+  documents: 0,
+  chunks: 0,
+  models: 0,
+  storage: '0 MB'
+})
+
+const documents = ref([])
+
+const availableModels = ref([
+  { name: 'llama3.2:3b', description: 'Recommended - Fast and good quality', size: '2GB', features: 'Multilingual (termasuk Indonesia)', installed: false },
+  { name: 'llama3.2:1b', description: 'Very fast, good for limited resources', size: '1.3GB', features: 'Multilingual', installed: false },
+  { name: 'mistral:7b', description: 'High quality, needs more RAM', size: '4.1GB', features: 'Multilingual', installed: false },
+  { name: 'gemma2:2b', description: "Google's efficient model", size: '1.6GB', features: 'Multilingual', installed: false },
+  { name: 'qwen2.5:3b', description: 'Good for Asian languages', size: '1.9GB', features: 'Multilingual (bagus untuk Indonesia)', installed: false },
+  { name: 'phi3:mini', description: "Microsoft's efficient model", size: '2.3GB', features: 'Multilingual', installed: false },
+  { name: 'nomic-embed-text', description: 'Embedding model for RAG', size: '274MB', features: 'Multilingual', installed: false }
+])
+
+const trainingStatus = ref({
+  ready: false,
+  documents: 0,
+  chunks: 0,
+  lastUpdated: null
+})
+
+const toast = ref({
+  show: false,
+  message: '',
+  type: 'info'
+})
+
+// API helpers
+const API_URL = 'http://localhost:8000/api'
+
+function getAuthHeaders() {
+  return {
+    'Authorization': `Bearer ${auth.accessToken}`,
+    'Content-Type': 'application/json'
+  }
+}
+
+function showToast(message, type = 'info') {
+  toast.value = { show: true, message, type }
+  setTimeout(() => {
+    toast.value.show = false
+  }, 3000)
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-'
+  try {
+    return new Date(dateStr).toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    })
+  } catch (e) {
+    return '-'
+  }
+}
+
+// Load dashboard data
+async function loadDashboardData() {
+  await Promise.all([
+    refreshDocuments(),
+    checkOllamaModels(),
+    loadTrainingStatus()
+  ])
+}
+
+async function refreshDocuments() {
+  try {
+    const response = await fetch(`${API_URL}/documents/`, {
+      headers: getAuthHeaders()
+    })
+    if (response.ok) {
+      const data = await response.json()
+      documents.value = data.documents || data || []
+      stats.value.documents = documents.value.length
+      stats.value.chunks = documents.value.reduce((sum, d) => sum + (d.chunks || 0), 0)
+    }
+  } catch (error) {
+    console.error('Failed to load documents:', error)
+  }
+}
+
+async function checkOllamaModels() {
+  try {
+    const response = await fetch(`${API_URL}/health/ollama`)
+    if (response.ok) {
+      const data = await response.json()
+      const installedModels = data.models || []
+
+      availableModels.value.forEach(model => {
+        model.installed = installedModels.some(m =>
+            m.name === model.name || (m.name && m.name.startsWith(model.name.split(':')[0]))
+        )
+      })
+
+      stats.value.models = installedModels.length
+    }
+  } catch (error) {
+    console.error('Failed to check Ollama models:', error)
+  }
+}
+
+async function loadTrainingStatus() {
+  try {
+    const response = await fetch(`${API_URL}/training/status`, {
+      headers: getAuthHeaders()
+    })
+    if (response.ok) {
+      const data = await response.json()
+      trainingStatus.value = {
+        ready: data.ready || data.status === 'ready',
+        documents: data.documents || stats.value.documents,
+        chunks: data.chunks || stats.value.chunks,
+        lastUpdated: data.last_updated || data.lastUpdated
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load training status:', error)
+  }
+}
+
+// Download model with proper error handling
+async function downloadModel(modelName) {
+  downloadingModel.value = modelName
+  showToast(`Downloading ${modelName}... This may take a few minutes.`, 'info')
+
+  try {
+    const response = await fetch(`${API_URL}/training/pull-model`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ model: modelName })
+    })
+
+    if (!response.ok) {
+      let errorMessage = `HTTP Error: ${response.status}`
+      try {
+        const errorData = await response.json()
+        errorMessage = errorData?.detail || errorData?.message || errorData?.error || errorMessage
+      } catch (e) {
+        // ignore parse error
+      }
+      throw new Error(errorMessage)
+    }
+
+    let data = { success: true }
+    try {
+      const text = await response.text()
+      if (text) {
+        data = JSON.parse(text)
+      }
+    } catch (e) {
+      // Response might be empty for success
+    }
+
+    if (data?.error) {
+      throw new Error(data.error)
+    }
+
+    showToast(`${modelName} berhasil di-download!`, 'success')
+
+    const model = availableModels.value.find(m => m.name === modelName)
+    if (model) {
+      model.installed = true
+    }
+    stats.value.models++
+
+    await checkOllamaModels()
+
+  } catch (error) {
+    const errorMsg = error?.message || String(error) || 'Unknown error'
+    console.error('Download model error:', error)
+    showToast(`Gagal download ${modelName}: ${errorMsg}`, 'error')
+  } finally {
+    downloadingModel.value = null
+  }
+}
+
+// File upload
+async function handleFileSelect(event) {
+  const files = event.target?.files
+  if (files && files.length > 0) {
+    await uploadFiles(files)
+  }
+}
+
+function handleDrop(event) {
+  isDragging.value = false
+  const files = event.dataTransfer?.files
+  if (files && files.length > 0) {
+    uploadFiles(files)
+  }
+}
+
+async function uploadFiles(files) {
+  for (const file of files) {
+    await uploadSingleFile(file)
+  }
+  await refreshDocuments()
+}
+
+async function uploadSingleFile(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  uploadProgress.value = 10
+
+  try {
+    const response = await fetch(`${API_URL}/documents/upload`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${auth.accessToken}`
+      },
+      body: formData
+    })
+
+    uploadProgress.value = 90
+
+    if (response.ok) {
+      showToast(`${file.name} berhasil diupload!`, 'success')
+    } else {
+      let errorMsg = 'Upload failed'
+      try {
+        const error = await response.json()
+        errorMsg = error?.detail || error?.message || errorMsg
+      } catch (e) {}
+      throw new Error(errorMsg)
+    }
+  } catch (error) {
+    showToast(`Gagal upload ${file.name}: ${error?.message || error}`, 'error')
+  } finally {
+    uploadProgress.value = 0
+  }
+}
+
+async function deleteDocument(docId) {
+  if (!confirm('Hapus dokumen ini?')) return
+
+  try {
+    const response = await fetch(`${API_URL}/documents/${docId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    })
+
+    if (response.ok) {
+      showToast('Dokumen berhasil dihapus', 'success')
+      await refreshDocuments()
+    } else {
+      throw new Error('Delete failed')
+    }
+  } catch (error) {
+    showToast('Gagal menghapus dokumen', 'error')
+  }
+}
+
+async function retrainAll() {
+  isRetraining.value = true
+  showToast('Memulai retraining...', 'info')
+
+  try {
+    const response = await fetch(`${API_URL}/training/retrain`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    })
+
+    if (response.ok) {
+      showToast('Retraining selesai!', 'success')
+      await loadTrainingStatus()
+    } else {
+      throw new Error('Retrain failed')
+    }
+  } catch (error) {
+    showToast('Gagal melakukan retraining', 'error')
+  } finally {
+    isRetraining.value = false
+  }
+}
+
+function handleLogout() {
+  auth.logout()
+}
+</script>
