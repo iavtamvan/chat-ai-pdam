@@ -4,10 +4,12 @@ Optimized RAG Service
 - Caching at every level
 - Optimized context building
 - Document indexing for training
+- NEW: OCR & Chunking Support
 """
 
 import asyncio
 import hashlib
+import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -15,6 +17,19 @@ from app.core.config import settings, RAG_PROMPT_TEMPLATE
 from app.services.llm_service import get_llm_service
 from app.services.cache_service import get_cache
 from app.core.database import query_documents, add_documents, get_document_count
+
+# =============================================
+# NEW: Import OCR & Chunking Tools
+# =============================================
+try:
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    import PyPDF2
+    from pdf2image import convert_from_path
+    import pytesseract
+    HAS_EXTRACTION_TOOLS = True
+except ImportError:
+    HAS_EXTRACTION_TOOLS = False
+    print("⚠️ Dependensi pemrosesan PDF belum lengkap. Baca instruksi instalasi di bawah!")
 
 
 class OptimizedRAGService:
@@ -24,7 +39,73 @@ class OptimizedRAGService:
         self.llm = get_llm_service()
 
     # =============================================
-    # NEW: Methods for training/retraining
+    # NEW: Methods for File Extraction, OCR & Chunking
+    # =============================================
+
+    async def process_and_chunk_file(self, file_path: str, filename: str) -> List[Dict[str, Any]]:
+        """Extract text (with OCR fallback) and chunk document into pieces"""
+        if not HAS_EXTRACTION_TOOLS:
+            raise RuntimeError("Library belum lengkap! Jalankan: pip install PyPDF2 pdf2image pytesseract langchain")
+
+        full_text = ""
+        print(f"📄 Membaca dan mengekstrak teks dari: {filename}...")
+
+        try:
+            # 1. Baca PDF dengan PyPDF2 (Untuk teks digital biasa)
+            with open(file_path, 'rb') as f:
+                reader = PyPDF2.PdfReader(f)
+                for i, page in enumerate(reader.pages):
+                    text = page.extract_text()
+
+                    # Jika ada teks digital, gunakan itu
+                    if text and text.strip():
+                        full_text += text + "\n"
+                    else:
+                        # 2. OCR Fallback: Jika halaman kosong (gambar/SK/hasil scan)
+                        print(f"🔍 Menjalankan OCR pada halaman {i+1}...")
+                        try:
+                            images = convert_from_path(file_path, first_page=i+1, last_page=i+1)
+                            for img in images:
+                                # Menggunakan Tesseract dengan bahasa Indonesia
+                                ocr_text = pytesseract.image_to_string(img, lang='ind')
+                                full_text += ocr_text + "\n"
+                        except Exception as e:
+                            print(f"⚠️ OCR gagal pada halaman {i+1}: {e}")
+                            print("Pastikan Poppler dan Tesseract-OCR terinstall di OS kamu!")
+
+        except Exception as e:
+            print(f"❌ Gagal memproses file {filename}: {e}")
+            return []
+
+        if not full_text.strip():
+            print("⚠️ Tidak ada teks yang berhasil diekstrak.")
+            return []
+
+        # 3. Proses Chunking (Memotong dokumen dengan pintar)
+        print("✂️ Memotong dokumen menjadi chunks...")
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,       # Maksimal karakter per potongan
+            chunk_overlap=200,     # Overlap antar potongan agar kalimat tidak terputus
+            length_function=len,
+            separators=["\n\n", "\n", ".", " ", ""]
+        )
+
+        texts = text_splitter.split_text(full_text)
+        chunks = []
+
+        for i, chunk in enumerate(texts):
+            chunks.append({
+                "content": chunk,
+                "title": filename,
+                "source": "uploaded",
+                "chunk_index": i
+            })
+
+        print(f"✅ Berhasil membuat {len(chunks)} chunks dari {filename}")
+        return chunks
+
+    # =============================================
+    # EXISTING: Methods for training/retraining (TIDAK DIUBAH)
     # =============================================
 
     async def index_document(self, doc: Dict[str, Any]) -> bool:
@@ -140,7 +221,7 @@ class OptimizedRAGService:
             return 0
 
     # =============================================
-    # EXISTING: Search and generate methods
+    # EXISTING: Search and generate methods (TIDAK DIUBAH)
     # =============================================
 
     async def search(self, query: str, top_k: int = None) -> List[Dict[str, Any]]:
@@ -354,7 +435,6 @@ class OptimizedRAGService:
 
 # Singleton
 _rag_service: Optional[OptimizedRAGService] = None
-
 
 def get_rag_service() -> OptimizedRAGService:
     global _rag_service

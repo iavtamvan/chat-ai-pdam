@@ -55,3 +55,4 @@ anyio==4.3.0
 
 PyPDF2
 pdfplumber
+pdf2image

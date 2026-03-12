@@ -292,6 +292,7 @@ class GeminiAdapter(BaseProviderAdapter):
                 json={
                     "contents": contents,
                     "systemInstruction": {"parts": [{"text": system_prompt}]} if system_prompt else None,
+                    "tools": [{"googleSearch": {}}],
                     "generationConfig": {
                         "temperature": self.provider.temperature,
                         "maxOutputTokens": kwargs.get("max_tokens", self.provider.max_tokens),

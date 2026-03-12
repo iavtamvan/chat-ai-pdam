@@ -114,19 +114,19 @@ const defaultSuggestions = [
           <div class="markdown-content" v-html="message.content" />
           
           <!-- Sources (for assistant messages) -->
-          <div 
-            v-if="message.role === 'assistant' && message.sources?.length" 
-            class="mt-3 pt-3 border-t border-gray-100"
+          <div
+              v-if="message.role === 'assistant' && message.sources?.length"
+              class="mt-3 pt-3 border-t border-gray-100"
           >
-            <p class="text-xs text-gray-500 mb-2">📚 Sumber:</p>
+            <p class="text-xs text-gray-500 mb-2">📚 Sumber Dokumen:</p>
             <div class="flex flex-wrap gap-2">
-              <span 
-                v-for="(source, idx) in message.sources" 
-                :key="idx"
-                class="source-badge"
+              <span
+                  v-for="(source, idx) in message.sources"
+                  :key="idx"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-xs font-medium border border-blue-200 shadow-sm max-w-full"
               >
-                <Icon name="heroicons:document-text" class="w-3 h-3" />
-                {{ source.filename }}
+                <Icon name="heroicons:document-text" class="w-4 h-4 flex-shrink-0" />
+                <span class="whitespace-normal break-words text-left">{{ source.filename }}</span>
               </span>
             </div>
           </div>

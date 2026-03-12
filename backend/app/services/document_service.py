@@ -8,9 +8,12 @@ import os
 import uuid
 import hashlib
 import asyncio
+import fitz  # PyMuPDF for PDF
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
+from pdf2image import convert_from_path  # TAMBAHKAN INI
+from docx import Document as DocxDocument
 
 # Document loaders
 import fitz  # PyMuPDF for PDF
@@ -48,15 +51,30 @@ class DocumentProcessor:
         """Generate unique document ID"""
         hash_input = f"{filename}:{content[:100]}:{datetime.now().isoformat()}"
         return hashlib.md5(hash_input.encode()).hexdigest()[:16]
-    
+
     async def extract_text_from_pdf(self, file_path: str) -> str:
-        """Extract text from PDF file"""
+        """Extract text from PDF file (dengan OCR fallback untuk dokumen hasil scan)"""
         text = ""
         try:
             doc = fitz.open(file_path)
             for page_num, page in enumerate(doc):
                 page_text = page.get_text()
-                text += f"\n--- Halaman {page_num + 1} ---\n{page_text}"
+
+                # Jika ada teks digital biasa
+                if page_text and page_text.strip():
+                    text += f"\n--- Halaman {page_num + 1} ---\n{page_text}"
+                else:
+                    # OCR Fallback: Jika halaman berupa gambar/hasil scan
+                    try:
+                        # Convert halaman PDF ke gambar
+                        images = convert_from_path(file_path, first_page=page_num+1, last_page=page_num+1)
+                        for img in images:
+                            # Gunakan Tesseract untuk membaca gambar (bahasa Indo + Inggris)
+                            ocr_text = pytesseract.image_to_string(img, lang='ind+eng')
+                            if ocr_text.strip():
+                                text += f"\n--- Halaman {page_num + 1} (OCR) ---\n{ocr_text}"
+                    except Exception as ocr_err:
+                        print(f"Error OCR Halaman {page_num + 1}: {ocr_err}")
             doc.close()
         except Exception as e:
             print(f"Error extracting PDF: {e}")
