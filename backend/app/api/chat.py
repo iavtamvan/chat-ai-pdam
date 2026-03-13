@@ -42,6 +42,7 @@ router = APIRouter()
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=10000)
+    chat_history: Optional[List[Dict[str, Any]]] = None
     session_id: Optional[str] = None
     use_rag: bool = True
     stream: bool = False
@@ -276,6 +277,7 @@ Berikan jawaban yang informatif berdasarkan dokumen di atas."""
         result = await generate_with_enterprise(
             prompt=full_prompt,
             system_prompt=SYSTEM_PROMPT,
+            chat_history=request.chat_history,
             provider_id=request.provider_id,
             use_fallback=request.use_fallback
         )
@@ -288,7 +290,8 @@ Berikan jawaban yang informatif berdasarkan dokumen di atas."""
             print(f"⚠️ Enterprise AI failed: {result.get('error')}, falling back to Ollama")
             ollama_result = await generate_with_ollama(
                 prompt=full_prompt,
-                system_prompt=SYSTEM_PROMPT
+                system_prompt=SYSTEM_PROMPT,
+                chat_history=request.chat_history
             )
             if ollama_result.get("success"):
                 answer = ollama_result.get("answer", "")
@@ -302,7 +305,8 @@ Berikan jawaban yang informatif berdasarkan dokumen di atas."""
     else:
         result = await generate_with_ollama(
             prompt=full_prompt,
-            system_prompt=SYSTEM_PROMPT
+            system_prompt=SYSTEM_PROMPT,
+            chat_history=request.chat_history
         )
 
         if result.get("success"):
@@ -389,6 +393,7 @@ async def stream_message(
                 async for chunk in service.generate_stream(
                         prompt=full_prompt,
                         system_prompt=SYSTEM_PROMPT,
+                        chat_history=request.chat_history,
                         provider_id=request.provider_id
                 ):
                     yield f"data: {json.dumps({'content': chunk})}\n\n"
@@ -396,7 +401,8 @@ async def stream_message(
                 llm = get_llm_service()
                 async for chunk in llm.generate_stream(
                         prompt=full_prompt,
-                        system_prompt=SYSTEM_PROMPT
+                        system_prompt=SYSTEM_PROMPT,
+                        chat_history=request.chat_history
                 ):
                     yield f"data: {json.dumps({'content': chunk})}\n\n"
 

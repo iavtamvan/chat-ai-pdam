@@ -14,6 +14,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from pdf2image import convert_from_path  # TAMBAHKAN INI
 from docx import Document as DocxDocument
+from app.services.ai_provider_service import get_ai_provider_service
 
 # Document loaders
 import fitz  # PyMuPDF for PDF
@@ -177,9 +178,12 @@ class DocumentProcessor:
         if not chunks:
             return False, "Dokumen tidak menghasilkan chunk", 0
         
-        # Generate embeddings
-        ollama = get_ollama_service()
-        embeddings = await ollama.get_embeddings_batch(chunks)
+        # Generate embeddings secara fleksibel
+        ai_service = get_ai_provider_service()
+        embeddings = []
+        for chunk in chunks:
+            emb = await ai_service.get_embedding(chunk)
+            embeddings.append(emb)
         
         if not embeddings or len(embeddings) != len(chunks):
             return False, "Gagal membuat embeddings", 0
@@ -227,9 +231,10 @@ class DocumentProcessor:
     ) -> List[Dict[str, Any]]:
         """Search for similar documents"""
         from app.core.database import query_documents
-        
-        ollama = get_ollama_service()
-        query_embedding = await ollama.get_embedding(query)
+
+        # Search embeddings secara fleksibel
+        ai_service = get_ai_provider_service()
+        query_embedding = await ai_service.get_embedding(query)
         
         if not query_embedding:
             return []
@@ -279,32 +284,52 @@ class DocumentProcessor:
             return True, f"Berhasil menghapus {len(results['ids'])} chunk"
         except Exception as e:
             return False, f"Error: {str(e)}"
-    
+
     async def get_document_stats(self) -> Dict[str, Any]:
         """Get statistics about stored documents"""
         try:
             collection = get_collection()
             total_count = collection.count()
-            
+
             # Get all documents to analyze
             all_docs = collection.get(include=["metadatas"])
-            
-            # Count unique files
-            unique_files = set()
+
+            documents_map = {}
             file_types = {}
-            
+
             for meta in all_docs.get("metadatas", []):
                 if meta:
                     filename = meta.get("filename", "unknown")
                     file_type = meta.get("file_type", "unknown")
-                    unique_files.add(filename)
-                    file_types[file_type] = file_types.get(file_type, 0) + 1
-            
+                    upload_date = meta.get("upload_date", datetime.now().isoformat())
+
+                    if filename not in documents_map:
+                        documents_map[filename] = {
+                            "filename": filename,
+                            "file_type": file_type,
+                            "upload_date": upload_date,
+                            "chunks": 0,
+                            "size_bytes": 0
+                        }
+                        # Hitung tipe file per dokumen unik
+                        file_types[file_type] = file_types.get(file_type, 0) + 1
+
+                        # Coba ambil ukuran file asli dari folder upload
+                        try:
+                            matched_files = list(self.upload_dir.glob(f"*{filename}"))
+                            if matched_files:
+                                documents_map[filename]["size_bytes"] = os.path.getsize(matched_files[0])
+                        except Exception:
+                            pass
+
+                    # Tambahkan hitungan chunk untuk dokumen ini
+                    documents_map[filename]["chunks"] += 1
+
             return {
                 "total_chunks": total_count,
-                "unique_documents": len(unique_files),
+                "unique_documents": len(documents_map),
                 "file_types": file_types,
-                "documents": list(unique_files)
+                "documents": list(documents_map.values()) # <--- INI KUNCINYA (Mengirim List of Objects)
             }
         except Exception as e:
             return {"error": str(e)}

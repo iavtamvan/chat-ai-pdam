@@ -476,14 +476,26 @@ async function loadDashboardData() {
 // =============================================
 async function refreshDocuments() {
   try {
-    const response = await fetch(`${API_URL}/training/documents`, {
+    // Ambil daftar file dari database dokumen utama
+    const listResponse = await fetch(`${API_URL}/documents/list?limit=100`, {
       headers: getAuthHeaders()
     })
-    if (response.ok) {
-      const data = await response.json()
-      documents.value = data.documents || data || []
-      stats.value.documents = documents.value.length
-      stats.value.chunks = documents.value.reduce((sum, d) => sum + (d.chunks || 0), 0)
+
+    if (listResponse.ok) {
+      const listData = await listResponse.json()
+      documents.value = listData.documents || []
+    }
+
+    // Ambil statistik (Total Chunks, Storage, dll)
+    const statsResponse = await fetch(`${API_URL}/documents/stats`, {
+      headers: getAuthHeaders()
+    })
+
+    if (statsResponse.ok) {
+      const statsData = await statsResponse.json()
+      stats.value.documents = statsData.unique_documents || documents.value.length
+      stats.value.chunks = statsData.total_chunks || 0
+      stats.value.storage = `${statsData.storage_used_mb || 0} MB`
     }
   } catch (error) {
     console.error('Failed to load documents:', error)
@@ -643,17 +655,19 @@ async function uploadSingleFile(file) {
 // FIX: Changed endpoint from /api/documents/{id} to /api/training/documents/{id}
 // =============================================
 async function deleteDocument(docId) {
-  if (!confirm('Hapus dokumen ini?')) return
+  if (!confirm('Hapus dokumen ini? File fisik dan memori AI akan dihapus permanen.')) return
 
   try {
-    const response = await fetch(`${API_URL}/training/documents/${docId}`, {
+    // FIX: Menggunakan endpoint /documents/, BUKAN /training/documents/
+    const response = await fetch(`${API_URL}/documents/${docId}`, {
       method: 'DELETE',
       headers: getAuthHeaders()
     })
 
     if (response.ok) {
-      showToast('Dokumen berhasil dihapus', 'success')
+      showToast('Dokumen dan memori AI berhasil dihapus', 'success')
       await refreshDocuments()
+      await loadTrainingStatus() // Refresh tab training agar sinkron
     } else {
       throw new Error('Delete failed')
     }

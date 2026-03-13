@@ -18,6 +18,12 @@ from app.services.llm_service import get_llm_service
 from app.services.cache_service import get_cache
 from app.core.database import query_documents, add_documents, get_document_count
 
+
+try:
+    from app.services.ai_provider_service import get_ai_provider_service
+    HAS_ENTERPRISE_AI = True
+except ImportError:
+    HAS_ENTERPRISE_AI = False
 # =============================================
 # NEW: Import OCR & Chunking Tools
 # =============================================
@@ -37,6 +43,7 @@ class OptimizedRAGService:
 
     def __init__(self):
         self.llm = get_llm_service()
+        self.ai_service = get_ai_provider_service() if HAS_ENTERPRISE_AI else None
 
     # =============================================
     # NEW: Methods for File Extraction, OCR & Chunking
@@ -117,8 +124,11 @@ class OptimizedRAGService:
             if not content:
                 return False
 
-            # Generate embedding
-            embedding = await self.llm.get_embedding(content)
+            # Generate embedding yang fleksibel
+            if self.ai_service:
+                embedding = await self.ai_service.get_embedding(content)
+            else:
+                embedding = await self.llm.get_embedding(content)
             if not embedding:
                 print(f"⚠️ Failed to generate embedding for {doc_id}")
                 return False
@@ -181,17 +191,17 @@ class OptimizedRAGService:
             print(f"📊 Generating embeddings for {len(contents)} chunks...")
 
             embeddings = []
-            if hasattr(self.llm, 'get_embeddings_batch'):
+            if self.ai_service:
+                for i, content in enumerate(contents):
+                    emb = await self.ai_service.get_embedding(content)
+                    embeddings.append(emb)
+            elif hasattr(self.llm, 'get_embeddings_batch'):
                 embeddings = await self.llm.get_embeddings_batch(contents)
             else:
                 # Fallback: generate one by one
                 for i, content in enumerate(contents):
                     emb = await self.llm.get_embedding(content)
-                    if emb:
-                        embeddings.append(emb)
-                    else:
-                        print(f"⚠️ Failed embedding for chunk {i}")
-                        embeddings.append(None)
+                    embeddings.append(emb)
 
             # Filter out failed embeddings
             valid_data = [(c, e, m, i) for c, e, m, i in zip(contents, embeddings, metadatas, ids) if e is not None]
@@ -249,7 +259,10 @@ class OptimizedRAGService:
                 pass
 
         # Get query embedding
-        query_embedding = await self.llm.get_embedding(query)
+        if self.ai_service:
+            query_embedding = await self.ai_service.get_embedding(query)
+        else:
+            query_embedding = await self.llm.get_embedding(query)
 
         if not query_embedding:
             return []

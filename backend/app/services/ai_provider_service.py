@@ -28,9 +28,13 @@ DEFAULT_MODELS = {
         AIModel(id="gpt-3.5-turbo", name="gpt-3.5-turbo", display_name="GPT-3.5 Turbo", max_tokens=16385),
     ],
     AIProviderType.GEMINI: [
-        AIModel(id="gemini-1.5-pro", name="gemini-1.5-pro", display_name="Gemini 1.5 Pro", max_tokens=1000000, supports_vision=True),
-        AIModel(id="gemini-1.5-flash", name="gemini-1.5-flash", display_name="Gemini 1.5 Flash", max_tokens=1000000, supports_vision=True),
-        AIModel(id="gemini-2.0-flash-exp", name="gemini-2.0-flash-exp", display_name="Gemini 2.0 Flash", max_tokens=1000000, supports_vision=True),
+        # TAMBAHKAN MODEL BARU DI SINI:
+        AIModel(id="gemini-2.5-flash", name="gemini-2.5-flash", display_name="Gemini 2.5 Flash", max_tokens=1048576, supports_vision=True),
+        AIModel(id="gemini-2.0-flash", name="gemini-2.0-flash", display_name="Gemini 2.0 Flash", max_tokens=1048576, supports_vision=True),
+
+        # (Ini model lama yang sudah ada sebelumnya)
+        AIModel(id="gemini-1.5-pro", name="gemini-1.5-pro", display_name="Gemini 1.5 Pro", max_tokens=2097152, supports_vision=True),
+        AIModel(id="gemini-1.5-flash", name="gemini-1.5-flash", display_name="Gemini 1.5 Flash", max_tokens=1048576, supports_vision=True),
     ],
     AIProviderType.DEEPSEEK: [
         AIModel(id="deepseek-chat", name="deepseek-chat", display_name="DeepSeek Chat", max_tokens=64000),
@@ -794,7 +798,42 @@ class AIProviderService:
         """Close all adapters"""
         for adapter in self._adapters.values():
             await adapter.close()
+async def get_embedding(self, text: str, provider_id: str = None) -> Optional[List[float]]:
+    """Generate embedding using the active AI provider (Flexible)"""
+    provider = self.get_provider(provider_id) if provider_id else self.get_default_provider()
+    if not provider:
+        return None
 
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            # 1. Jika provider aktif adalah GEMINI
+            if provider.provider_type == AIProviderType.GEMINI:
+                base_url = provider.api_base_url or API_BASE_URLS[AIProviderType.GEMINI]
+                res = await client.post(
+                    f"{base_url}/models/text-embedding-004:embedContent",
+                    params={"key": provider.api_key},
+                    json={
+                        "model": "models/text-embedding-004",
+                        "content": {"parts": [{"text": text}]}
+                    }
+                )
+                if res.status_code == 200:
+                    return res.json()["embedding"]["values"]
+
+            # 2. Jika provider aktif adalah OLLAMA
+            elif provider.provider_type == AIProviderType.OLLAMA:
+                base_url = provider.api_base_url or API_BASE_URLS[AIProviderType.OLLAMA]
+                res = await client.post(
+                    f"{base_url}/api/embeddings",
+                    json={"model": provider.default_model or "llama3.2:3b", "prompt": text}
+                )
+                if res.status_code == 200:
+                    return res.json()["embedding"]
+
+        except Exception as e:
+            print(f"❌ Error generating embedding with {provider.name}: {e}")
+
+    return None
 
 # Singleton
 _ai_provider_service: Optional[AIProviderService] = None

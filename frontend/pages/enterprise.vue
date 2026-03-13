@@ -626,7 +626,11 @@ const freeOptions = ref([
 // Static models for non-Ollama providers
 const staticModelsByProvider = {
   groq: [{ id: 'llama-3.3-70b-versatile', display_name: 'Llama 3.3 70B' }, { id: 'mixtral-8x7b-32768', display_name: 'Mixtral 8x7B' }],
-  gemini: [{ id: 'gemini-1.5-flash', display_name: 'Gemini 1.5 Flash' }, { id: 'gemini-1.5-pro', display_name: 'Gemini 1.5 Pro' }],
+  gemini: [{ id: 'gemini-1.5-flash', display_name: 'Gemini 1.5 Flash' }
+    , { id: 'gemini-1.5-pro', display_name: 'Gemini 1.5 Pro' }
+    , { id: 'gemini-2.5-flash', display_name: 'gemini-2.5-flash' }
+    , { id: 'gemini-2.0-flash', display_name: 'gemini-2.0-flash' }
+  ],
   openai: [{ id: 'gpt-4o-mini', display_name: 'GPT-4o Mini' }],
   deepseek: [{ id: 'deepseek-chat', display_name: 'DeepSeek Chat' }],
   claude: [{ id: 'claude-3-haiku-20240307', display_name: 'Claude 3 Haiku' }],
